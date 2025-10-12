@@ -5,6 +5,7 @@
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
+![MIT License](https://img.shields.io/badge/License-MIT-green.svg)
 
 使用 **FastAPI** 整合 **gLabels** 的標籤列印微服務。  
 提供 REST API 將 **JSON → CSV → gLabels 模板 → PDF**，支援非同步任務處理、平行執行、逾時處理與檔案下載。

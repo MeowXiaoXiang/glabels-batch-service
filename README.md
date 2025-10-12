@@ -5,6 +5,7 @@
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
+![MIT License](https://img.shields.io/badge/License-MIT-green.svg)
 
 A **FastAPI** microservice that provides REST API for label printing by integrating with **gLabels**.  
 Converts **JSON → CSV → gLabels Template → PDF** with async job processing, parallel execution, timeout handling, and file downloads.
