@@ -13,8 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     glabels \
     glabels-data \
     fonts-dejavu \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # Verify CLI is available
 RUN glabels-3-batch --help > /dev/null
 
