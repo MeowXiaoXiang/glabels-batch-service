@@ -174,7 +174,7 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
 # 在 Linux 系統上安裝 gLabels (必要相依軟體)
-sudo apt-get install glabels glabels-data
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
 
 # 執行應用程式
 python -m app.main
