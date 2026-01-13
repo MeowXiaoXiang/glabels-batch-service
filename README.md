@@ -174,7 +174,7 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
 # Install gLabels on your Linux system (required dependency)
-sudo apt-get install glabels glabels-data
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
 
 # Run application
 python -m app.main
