@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
@@ -28,12 +29,12 @@ async def lifespan(app: FastAPI):
     app.state.job_manager = JobManager()
     app.state.job_manager.start_workers()
     app.state.start_time = datetime.now(timezone.utc)
-    logger.info("✅ JobManager started in lifespan")
+    logger.info("JobManager started in lifespan")
     try:
         yield
     finally:
         await app.state.job_manager.stop_workers()
-        logger.info("🛑 JobManager stopped in lifespan")
+        logger.info("JobManager stopped in lifespan")
 
 
 # Initialize logger and FastAPI app
@@ -54,6 +55,21 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+def _split_csv(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+# CORS Middleware (simple whitelist)
+origins = _split_csv(settings.CORS_ALLOW_ORIGINS)
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 # Global Exception Handler

@@ -4,9 +4,9 @@ Integration tests for Labels Service
 ====================================
 
 Covers essential end-to-end workflows:
-- ✅ Template discovery workflow
-- 🏭 Job manager integration
-- ❌ Error propagation
+- Template discovery workflow
+- Job manager integration
+- Error propagation
 """
 
 import gzip
@@ -24,32 +24,31 @@ from app.services.template_service import TemplateService
 class TestEndToEndIntegration:
 
     @pytest.fixture
-    def temp_workspace(self):
+    def temp_workspace(self, tmp_path):
         """Create temporary workspace with directories and test files."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workspace = Path(temp_dir)
+        workspace = tmp_path
 
-            # Create directories
-            templates_dir = workspace / "templates"
-            output_dir = workspace / "output"
-            temp_csv_dir = workspace / "temp"
+        # Create directories
+        templates_dir = workspace / "templates"
+        output_dir = workspace / "output"
+        temp_csv_dir = workspace / "temp"
 
-            templates_dir.mkdir()
-            output_dir.mkdir()
-            temp_csv_dir.mkdir()
+        templates_dir.mkdir()
+        output_dir.mkdir()
+        temp_csv_dir.mkdir()
 
-            # Create test template file
-            test_template = self._create_test_template()
-            template_file = templates_dir / "test.glabels"
-            with gzip.open(template_file, "wt", encoding="utf-8") as f:
-                f.write(test_template)
+        # Create test template file
+        test_template = self._create_test_template()
+        template_file = templates_dir / "test.glabels"
+        with gzip.open(template_file, "wt", encoding="utf-8") as f:
+            f.write(test_template)
 
-            yield {
-                "workspace": workspace,
-                "templates": templates_dir,
-                "output": output_dir,
-                "temp": temp_csv_dir,
-            }
+        return {
+            "workspace": workspace,
+            "templates": templates_dir,
+            "output": output_dir,
+            "temp": temp_csv_dir,
+        }
 
     def _create_test_template(self):
         """Create test gLabels template XML."""
@@ -79,7 +78,7 @@ class TestEndToEndIntegration:
 </Glabels-document>"""
 
     def test_template_discovery_workflow(self, temp_workspace):
-        """✅ Should discover and parse templates successfully."""
+        """Should discover and parse templates successfully."""
         templates_dir = temp_workspace["templates"]
 
         # Initialize template service with test directory
@@ -95,7 +94,7 @@ class TestEndToEndIntegration:
         # Template parsing may not extract fields correctly in test environment
 
     def test_template_info_retrieval(self, temp_workspace):
-        """🔍 Should retrieve specific template information."""
+        """Should retrieve specific template information."""
         templates_dir = temp_workspace["templates"]
         service = TemplateService(templates_dir=str(templates_dir))
 
@@ -109,7 +108,7 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_job_manager_integration(self, temp_workspace):
-        """🏭 Should integrate JobManager with LabelPrintService."""
+        """Should integrate JobManager with LabelPrintService."""
         workspace = temp_workspace["workspace"]
 
         with patch("pathlib.Path.cwd", return_value=workspace):
@@ -152,7 +151,7 @@ class TestEndToEndIntegration:
                 await job_manager.stop_workers()
 
     def test_error_propagation_template_not_found(self, temp_workspace):
-        """❌ Should propagate FileNotFoundError from template service."""
+        """Should propagate FileNotFoundError from template service."""
         templates_dir = temp_workspace["templates"]
         service = TemplateService(templates_dir=str(templates_dir))
 

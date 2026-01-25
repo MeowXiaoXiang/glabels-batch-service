@@ -29,7 +29,7 @@ def setup_logger(level: str = None):
     except Exception as e:
         # If directory creation fails, fallback to console log only
         logger.add(sys.stdout, level="DEBUG", colorize=True)
-        logger.error(f"❌ Failed to create log directory: {e}")
+        logger.error(f"Failed to create log directory: {e}")
         return logger
 
     # Console: colored output
@@ -55,7 +55,7 @@ def setup_logger(level: str = None):
             "| {file}:{function}:{line} - {message}",
         )
     except Exception as e:
-        logger.error(f"❌ Failed to create system.log: {e}")
+        logger.error(f"Failed to create system.log: {e}")
 
     # Error log: ERROR and above
     try:
@@ -69,7 +69,7 @@ def setup_logger(level: str = None):
             "| {file}:{function}:{line} - {message}",
         )
     except Exception as e:
-        logger.error(f"❌ Failed to create error.log: {e}")
+        logger.error(f"Failed to create error.log: {e}")
 
-    logger.info(f"✅ Logger initialized with level={log_level}")
+    logger.info(f"Logger initialized with level={log_level}")
     return logger

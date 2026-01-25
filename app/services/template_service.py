@@ -86,7 +86,7 @@ class TemplateService:
             FileNotFoundError: If template file doesn't exist
             ValueError: If template format is invalid
         """
-        template_path = self.templates_dir / template_name
+        template_path = self._resolve_template_path(template_name)
 
         if not template_path.exists():
             raise FileNotFoundError(f"Template file not found: {template_name}")
@@ -108,7 +108,10 @@ class TemplateService:
         Returns:
             bool: True if template exists, False otherwise
         """
-        template_path = self.templates_dir / template_name
+        try:
+            template_path = self._resolve_template_path(template_name)
+        except ValueError:
+            return False
         return template_path.exists() and template_path.is_file()
 
     def get_template_path(self, template_name: str) -> Path:
@@ -124,10 +127,23 @@ class TemplateService:
         Raises:
             FileNotFoundError: If template doesn't exist
         """
-        template_path = self.templates_dir / template_name
-
+        template_path = self._resolve_template_path(template_name)
         if not self.template_exists(template_name):
             raise FileNotFoundError(f"Template file not found: {template_name}")
+        return template_path
+
+    def _resolve_template_path(self, template_name: str) -> Path:
+        """
+        Resolve a template path and prevent path traversal.
+        """
+        if Path(template_name).name != template_name:
+            raise ValueError("Template name must not include path separators")
+
+        base_dir = self.templates_dir.resolve()
+        template_path = (self.templates_dir / template_name).resolve()
+
+        if not template_path.is_relative_to(base_dir):
+            raise ValueError("Template path escapes templates directory")
 
         return template_path
 

@@ -4,12 +4,12 @@ Unit tests for GlabelsEngine
 ============================
 
 Covers:
-- ✅ Successful execution (mock subprocess)
-- ❌ Failure with non-zero return code
-- 📂 Missing input files
-- ⏱ Timeout handling
-- ⚠️ rc=0 but no PDF generated
-- 🧵 Long stderr output (logging truncation vs full return)
+- Successful execution (mock subprocess)
+- Failure with non-zero return code
+- Missing input files
+- Timeout handling
+- rc=0 but no PDF generated
+- Long stderr output (logging truncation vs full return)
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from app.utils.glabels_engine import (GlabelsEngine, GlabelsExecutionError,
 class TestGlabelsEngine:
     @pytest.mark.asyncio
     async def test_run_batch_success(self, monkeypatch, tmp_path):
-        """✅ Should succeed and produce PDF"""
+        """Should succeed and produce PDF"""
         tpl = tmp_path / "demo.glabels"
         csv = tmp_path / "demo.csv"
         out = tmp_path / "out.pdf"
@@ -53,7 +53,7 @@ class TestGlabelsEngine:
 
     @pytest.mark.asyncio
     async def test_run_batch_failure(self, monkeypatch, tmp_path):
-        """❌ Should raise GlabelsExecutionError on non-zero rc"""
+        """Should raise GlabelsExecutionError on non-zero rc"""
         tpl = tmp_path / "demo.glabels"
         csv = tmp_path / "demo.csv"
         out = tmp_path / "out.pdf"
@@ -78,7 +78,7 @@ class TestGlabelsEngine:
 
     @pytest.mark.asyncio
     async def test_file_not_found(self, tmp_path):
-        """📂 Missing template or CSV should raise FileNotFoundError"""
+        """Missing template or CSV should raise FileNotFoundError"""
         tpl = tmp_path / "missing.glabels"
         csv = tmp_path / "missing.csv"
         out = tmp_path / "out.pdf"
@@ -88,7 +88,7 @@ class TestGlabelsEngine:
 
     @pytest.mark.asyncio
     async def test_timeout(self, monkeypatch, tmp_path):
-        """⏱ Should raise GlabelsTimeoutError when process hangs"""
+        """Should raise GlabelsTimeoutError when process hangs"""
         tpl = tmp_path / "demo.glabels"
         csv = tmp_path / "demo.csv"
         out = tmp_path / "out.pdf"
@@ -121,7 +121,7 @@ class TestGlabelsEngine:
 
     @pytest.mark.asyncio
     async def test_rc0_but_no_pdf(self, monkeypatch, tmp_path):
-        """⚠️ rc=0 but no PDF should still raise GlabelsExecutionError"""
+        """rc=0 but no PDF should still raise GlabelsExecutionError"""
         tpl = tmp_path / "demo.glabels"
         csv = tmp_path / "demo.csv"
         out = tmp_path / "out.pdf"
@@ -146,7 +146,7 @@ class TestGlabelsEngine:
 
     @pytest.mark.asyncio
     async def test_stderr_truncation(self, monkeypatch, tmp_path):
-        """🧵 stderr should be truncated in logs but full in return"""
+        """stderr should be truncated in logs but full in return"""
         tpl = tmp_path / "demo.glabels"
         csv = tmp_path / "demo.csv"
         out = tmp_path / "out.pdf"
@@ -174,3 +174,53 @@ class TestGlabelsEngine:
         assert rc == 0
         assert out.exists()
         assert len(stderr) == 6000
+
+    @pytest.mark.asyncio
+    async def test_stderr_truncation_logging(self, monkeypatch, tmp_path):
+        """stderr log should be truncated while return stays full"""
+        tpl = tmp_path / "demo.glabels"
+        csv = tmp_path / "demo.csv"
+        out = tmp_path / "out.pdf"
+        tpl.write_text("dummy")
+        csv.write_text("x")
+
+        long_err = ("E" * 6000).encode()
+
+        class DummyProc:
+            returncode = 0
+
+            async def communicate(self):
+                out.write_text("fake pdf content")
+                return b"stdout ok", long_err
+
+        async def fake_exec(*a, **k):
+            return DummyProc()
+
+        from app.utils import glabels_engine as ge
+
+        captured = {"stderr_chunk": None}
+
+        def intercept_debug(message, *args, **kwargs):
+            if isinstance(message, str) and message.startswith("glabels stderr"):
+                if args and isinstance(args[0], str):
+                    captured["stderr_chunk"] = args[0]
+                else:
+                    prefix = "glabels stderr (truncated):\n"
+                    if message.startswith(prefix):
+                        captured["stderr_chunk"] = message[len(prefix):]
+                    else:
+                        captured["stderr_chunk"] = message
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        monkeypatch.setattr(ge.logger, "debug", intercept_debug)
+
+        engine = GlabelsEngine()
+        rc, stdout, stderr = await engine.run_batch(
+            output_pdf=out, template_path=tpl, csv_path=csv, log_truncate=4096
+        )
+
+        assert rc == 0
+        assert out.exists()
+        assert len(stderr) == 6000
+        assert captured["stderr_chunk"] is not None
+        assert len(captured["stderr_chunk"]) == 4096

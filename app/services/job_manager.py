@@ -7,7 +7,7 @@
 import asyncio
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -57,7 +57,7 @@ class JobManager:
         """
         Create initial job record (pending status).
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         return {
             "status": "pending",
             "filename": filename,  # output filename (PDF)
@@ -85,10 +85,10 @@ class JobManager:
                 job_id, req, filename = await self.queue.get()
                 job = self.jobs[job_id]
                 job["status"] = "running"
-                job["started_at"] = datetime.now()
+                job["started_at"] = datetime.now(timezone.utc)
 
                 logger.debug(
-                    f"[Worker-{wid}] 🚀 START job_id={job_id}, template={req.template_name}"
+                    f"[Worker-{wid}] START job_id={job_id}, template={req.template_name}"
                 )
 
                 try:
@@ -101,18 +101,18 @@ class JobManager:
                     )
                     job["status"] = "done"
                     logger.info(
-                        f"[Worker-{wid}] ✅ job_id={job_id} completed → {filename}"
+                        f"[Worker-{wid}] job_id={job_id} completed -> {filename}"
                     )
                 except Exception as e:
                     job["status"] = "failed"
                     job["error"] = str(e)
-                    logger.exception(f"[Worker-{wid}] ❌ job_id={job_id} failed")
+                    logger.exception(f"[Worker-{wid}] job_id={job_id} failed")
                 finally:
-                    job["finished_at"] = datetime.now()
+                    job["finished_at"] = datetime.now(timezone.utc)
                     self.queue.task_done()
                     self._cleanup_jobs()
         except asyncio.CancelledError:
-            logger.info(f"[Worker-{wid}] 🛑 stopped by cancel()")
+            logger.info(f"[Worker-{wid}] stopped by cancel()")
             raise
 
     # --------------------------------------------------------
@@ -123,12 +123,16 @@ class JobManager:
         Cleanup expired job records and scan output/ to delete old PDFs.
         Uses file modification time to handle orphaned files as well.
         """
-        cutoff = datetime.now() - self.retention
+        cutoff = datetime.now(timezone.utc) - self.retention
 
-        # 1. Cleanup expired job records from memory
-        old_jobs = [jid for jid, job in self.jobs.items() if job["created_at"] < cutoff]
+        # 1. Cleanup expired job records from memory (only finished jobs)
+        old_jobs = [
+            jid
+            for jid, job in self.jobs.items()
+            if job.get("finished_at") is not None and job["finished_at"] < cutoff
+        ]
         for jid in old_jobs:
-            logger.debug(f"[JobManager] 🗑️ cleanup expired job_id={jid}")
+            logger.debug(f"[JobManager] cleanup expired job_id={jid}")
             self.jobs.pop(jid, None)
 
         # 2. Scan output/ to delete all expired PDFs (including orphaned files)
@@ -141,9 +145,9 @@ class JobManager:
             try:
                 if pdf.stat().st_mtime < cutoff_timestamp:
                     pdf.unlink()
-                    logger.debug(f"[JobManager] 🗑️ deleted old PDF: {pdf.name}")
+                    logger.debug(f"[JobManager] deleted old PDF: {pdf.name}")
             except OSError as e:
-                logger.warning(f"[JobManager] ⚠️ cannot delete PDF {pdf.name}: {e}")
+                logger.warning(f"[JobManager] cannot delete PDF {pdf.name}: {e}")
 
     # --------------------------------------------------------
     # Scheduled cleanup (runs every hour)
@@ -219,7 +223,7 @@ class JobManager:
 
         await self.queue.put((job_id, req, filename))
         logger.info(
-            f"[JobManager] 📨 submitted job_id={job_id}, template={req.template_name}"
+            f"[JobManager] submitted job_id={job_id}, template={req.template_name}"
         )
         return job_id
 

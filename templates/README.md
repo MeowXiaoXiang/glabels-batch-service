@@ -1,14 +1,14 @@
 # Templates Directory
 
-## 📄 Purpose
+## Purpose
 
 This directory stores **gLabels template files** used by the label printing service.
 
-## 📁 File Format
+## File Format
 
 - `.glabels` - Standard gLabels template file (regardless of compression)
 
-## 🎯 How to Use
+## How to Use
 
 ### 1. Place your template
 
@@ -34,13 +34,13 @@ When calling `POST /labels/print`, use the filename (without path):
 }
 ```
 
-## ⚙️ Template Requirements
+## Template Requirements
 
 - **CSV field mapping**: The field names defined in the template must exactly match the keys in the API `data` object.
 - **UTF-8 encoding**: Ensure UTF-8 encoding to correctly render Chinese or other special characters.
 - **Testing recommendation**: Test your template in the gLabels desktop application before placing it here.
 
-## 📝 Example
+## Example
 
 Suppose `your_custom_template.glabels` defines these fields:
 

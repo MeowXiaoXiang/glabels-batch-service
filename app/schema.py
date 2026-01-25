@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.config import settings
+
 
 class LabelRequest(BaseModel):
     """
@@ -48,6 +50,27 @@ class LabelRequest(BaseModel):
             raise ValueError("template_name must have .glabels extension")
         if not v.endswith(".glabels"):  # normalize extension case
             v = v[:-8] + ".glabels"
+        return v
+
+    @field_validator("data")
+    @classmethod
+    def validate_data_limits(cls, v: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not v:
+            raise ValueError("data must not be empty")
+        if len(v) > settings.MAX_LABELS_PER_JOB:
+            raise ValueError(
+                f"data length exceeds MAX_LABELS_PER_JOB={settings.MAX_LABELS_PER_JOB}"
+            )
+        for row in v:
+            if len(row) > settings.MAX_FIELDS_PER_LABEL:
+                raise ValueError(
+                    f"label field count exceeds MAX_FIELDS_PER_LABEL={settings.MAX_FIELDS_PER_LABEL}"
+                )
+            for value in row.values():
+                if isinstance(value, str) and len(value) > settings.MAX_FIELD_LENGTH:
+                    raise ValueError(
+                        f"field length exceeds MAX_FIELD_LENGTH={settings.MAX_FIELD_LENGTH}"
+                    )
         return v
 
 

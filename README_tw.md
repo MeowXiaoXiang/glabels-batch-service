@@ -10,7 +10,7 @@
 使用 **FastAPI** 整合 **gLabels** 的標籤列印微服務。  
 提供 REST API 將 **JSON → CSV → gLabels 模板 → PDF**，支援非同步任務處理、平行執行、逾時處理與檔案下載。
 
-📖 **[English Version README](README.md)**
+**[English Version README](README.md)**
 
 ## 快速開始
 
@@ -153,9 +153,14 @@ RELOAD=false                # 自動重載 (開發用)
 KEEP_CSV=false              # 保留中繼 CSV 檔案
 MAX_PARALLEL=0              # 最大平行工作數 (0=自動)
 MAX_LABELS_PER_BATCH=300    # 每批最大標籤數量
+MAX_LABELS_PER_JOB=2000     # 單次請求最大標籤數量
 GLABELS_TIMEOUT=600         # 單一任務逾時秒數
 RETENTION_HOURS=24          # 任務保存時數
 LOG_LEVEL=INFO              # 日誌等級
+MAX_REQUEST_BYTES=5000000   # 最大請求 body bytes
+MAX_FIELDS_PER_LABEL=50     # 單筆最大欄位數量
+MAX_FIELD_LENGTH=2048       # 單一欄位最大字元長度
+CORS_ALLOW_ORIGINS=
 ```
 
 ## 本機開發
@@ -240,6 +245,12 @@ es.addEventListener('status', (e) => {
 curl -O http://localhost:8000/labels/jobs/abc123.../download
 ```
 
+瀏覽器預覽：
+
+```bash
+curl http://localhost:8000/labels/jobs/abc123.../download?preview=true
+```
+
 ### 列出模板
 
 ```bash
@@ -250,6 +261,7 @@ curl http://localhost:8000/labels/templates
 
 - 將 `.glabels` 模板檔案放置於 `templates/` 目錄
 - JSON 資料欄位必須與模板變數對應
+- data 陣列不得為空，且需符合設定的上限
 - 產生的 PDF 儲存至 `output/` 目錄
 - 暫存 CSV 檔案位於 `temp/` (可設定保留與否)
 
@@ -302,6 +314,11 @@ docker compose exec label-service sh
 
 - `MAX_PARALLEL=0` 自動設定為 CPU 核心數-1，可根據系統效能調整
 - `MAX_LABELS_PER_BATCH=300` 控制每批次處理的標籤數量，超過時會自動分批處理再合併為單一 PDF
+- `MAX_LABELS_PER_JOB=2000` 控制單次請求最多可處理的標籤數量
+- `MAX_REQUEST_BYTES=5000000` 限制請求 body 大小以避免記憶體壓力
+- `MAX_FIELDS_PER_LABEL=50` 限制單筆資料欄位數量
+- `MAX_FIELD_LENGTH=2048` 限制單一欄位字串長度
+- `CORS_ALLOW_ORIGINS` 允許的來源清單（留空即關閉 CORS）
 - `GLABELS_TIMEOUT=600` 如果處理大量資料時逾時，可適當提高
 - `KEEP_CSV=true` 開啟可保留中繼 CSV 檔案供偵錯檢查
 - `RETENTION_HOURS=24` 控制任務在記憶體中保存的時間

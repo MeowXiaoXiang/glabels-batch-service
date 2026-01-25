@@ -4,17 +4,19 @@ Unit tests for JobManager
 =========================
 
 Covers:
-- ✅ Submit job increments jobs_total and creates record
-- 🚀 Worker processes job and updates status to done
-- ❌ Worker failure updates status to failed with error
-- 🗑️ Cleanup removes expired jobs
-- 📋 list_jobs returns most recent jobs, sorted by created_at
-- 🔍 get_job returns correct job or None
-- 🔢 jobs_total counter increases across multiple submissions
+- Submit job increments jobs_total and creates record
+- Worker processes job and updates status to done
+- Worker failure updates status to failed with error
+- Cleanup removes expired jobs
+- list_jobs returns most recent jobs, sorted by created_at
+- get_job returns correct job or None
+- jobs_total counter increases across multiple submissions
+- cleanup removes old PDFs from output directory
+- start/stop workers manage worker tasks
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -24,7 +26,7 @@ from app.services.job_manager import JobManager
 
 @pytest.mark.asyncio
 async def test_submit_and_complete_job(monkeypatch):
-    """✅ Submitting a job should increment counter and complete with 'done' status"""
+    """Submitting a job should increment counter and complete with 'done' status"""
 
     jm = JobManager()
 
@@ -53,7 +55,7 @@ async def test_submit_and_complete_job(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_submit_and_fail_job(monkeypatch):
-    """❌ If generate_pdf raises, job should be marked failed with error"""
+    """If generate_pdf raises, job should be marked failed with error"""
 
     jm = JobManager()
 
@@ -78,7 +80,7 @@ async def test_submit_and_fail_job(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jobs_total_multiple(monkeypatch):
-    """🔢 jobs_total should increase as multiple jobs are submitted"""
+    """jobs_total should increase as multiple jobs are submitted"""
 
     jm = JobManager()
 
@@ -105,7 +107,7 @@ async def test_jobs_total_multiple(monkeypatch):
 
 
 def test_cleanup_jobs():
-    """🗑️ Expired jobs should be removed from JobManager"""
+    """Expired jobs should be removed from JobManager"""
 
     jm = JobManager()
     jm.retention = timedelta(seconds=0)  # expire immediately
@@ -117,9 +119,9 @@ def test_cleanup_jobs():
         "filename": "out.pdf",
         "template": "demo.glabels",
         "error": None,
-        "created_at": datetime.now() - timedelta(hours=1),
-        "started_at": datetime.now() - timedelta(hours=1),
-        "finished_at": datetime.now() - timedelta(hours=1),
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "started_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "finished_at": datetime.now(timezone.utc) - timedelta(hours=1),
         "request": req.model_dump(),
     }
 
@@ -127,12 +129,34 @@ def test_cleanup_jobs():
     assert job_id not in jm.jobs
 
 
+def test_cleanup_jobs_skips_unfinished():
+    """Unfinished jobs should not be removed by cleanup."""
+    jm = JobManager()
+    jm.retention = timedelta(seconds=0)
+
+    req = LabelRequest(template_name="demo.glabels", data=[{"A": 1}], copies=1)
+    job_id = "running"
+    jm.jobs[job_id] = {
+        "status": "running",
+        "filename": "out.pdf",
+        "template": "demo.glabels",
+        "error": None,
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "started_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "finished_at": None,
+        "request": req.model_dump(),
+    }
+
+    jm._cleanup_jobs()
+    assert job_id in jm.jobs
+
+
 def test_get_job_and_list_jobs():
-    """📋 list_jobs should return jobs sorted by created_at, get_job returns correct job"""
+    """list_jobs should return jobs sorted by created_at, get_job returns correct job"""
 
     jm = JobManager()
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     req = LabelRequest(template_name="demo.glabels", data=[{"A": 1}], copies=1)
 
     # Insert 3 jobs with different timestamps
@@ -180,3 +204,40 @@ def test_get_job_and_list_jobs():
 
     # get_job for missing id returns None
     assert jm.get_job("missing") is None
+
+
+def test_cleanup_old_pdfs(monkeypatch, tmp_path):
+    """Expired PDFs in output/ should be deleted"""
+    jm = JobManager()
+
+    monkeypatch.chdir(tmp_path)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    old_pdf = output_dir / "old.pdf"
+    old_pdf.write_text("old")
+    old_time = (datetime.now() - timedelta(hours=25)).timestamp()
+    import os
+
+    os.utime(old_pdf, (old_time, old_time))
+
+    new_pdf = output_dir / "new.pdf"
+    new_pdf.write_text("new")
+
+    jm._cleanup_jobs()
+
+    assert not old_pdf.exists()
+    assert new_pdf.exists()
+
+
+@pytest.mark.asyncio
+async def test_start_stop_workers():
+    """Workers should start and stop cleanly"""
+    jm = JobManager()
+    jm.start_workers()
+    assert len(jm.workers) == jm.max_parallel
+    for worker in jm.workers:
+        assert not worker.done()
+
+    await jm.stop_workers()
+    assert len(jm.workers) == 0

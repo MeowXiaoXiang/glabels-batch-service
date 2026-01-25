@@ -166,7 +166,7 @@ class LabelPrintService:
         batch_pdf = output_dir / f"{job_id}_batch{batch_index}.pdf"
 
         logger.debug(
-            f"[LabelPrint] 🔄 Batch {batch_index} starting: "
+            f"[LabelPrint] Batch {batch_index} starting: "
             f"labels={len(data)}, csv={csv_path.name}, pdf={batch_pdf.name}"
         )
 
@@ -180,7 +180,7 @@ class LabelPrintService:
                 csv_path=csv_path,
                 extra_args=[f"--copies={copies}"] if copies > 1 else [],
             )
-            logger.debug(f"[LabelPrint] ✅ batch {batch_index} done → {batch_pdf}")
+            logger.debug(f"[LabelPrint] batch {batch_index} done -> {batch_pdf}")
             return batch_pdf
         finally:
             # Cleanup temp CSV
@@ -233,7 +233,7 @@ class LabelPrintService:
         need_batch = max_per_batch > 0 and total_labels > max_per_batch
 
         logger.debug(
-            f"[LabelPrint] 📊 Batch config: total_labels={total_labels}, "
+            f"[LabelPrint] Batch config: total_labels={total_labels}, "
             f"max_per_batch={max_per_batch}, need_batch={need_batch}"
         )
 
@@ -243,7 +243,7 @@ class LabelPrintService:
             self._json_to_csv(data, csv_path, field_order=field_order)
 
             logger.debug(
-                f"[LabelPrint] 🚀 START job_id={job_id}, template={template_path}, "
+                f"[LabelPrint] START job_id={job_id}, template={template_path}, "
                 f"labels={total_labels}, copies={copies}"
             )
 
@@ -256,12 +256,12 @@ class LabelPrintService:
                 )
                 duration = time.time() - start_time
                 logger.info(
-                    f"[LabelPrint] ✅ job_id={job_id} finished in {duration:.2f}s → {output_pdf}"
+                    f"[LabelPrint] job_id={job_id} finished in {duration:.2f}s -> {output_pdf}"
                 )
             except GlabelsRunError as e:
                 duration = time.time() - start_time
                 logger.error(
-                    f"[LabelPrint] ❌ job_id={job_id} failed after {duration:.2f}s "
+                    f"[LabelPrint] job_id={job_id} failed after {duration:.2f}s "
                     f"(rc={e.returncode})\n{e.stderr}"
                 )
                 truncated_stderr = (
@@ -274,10 +274,10 @@ class LabelPrintService:
                 if csv_path.exists() and not self.keep_csv:
                     try:
                         csv_path.unlink()
-                        logger.debug(f"[LabelPrint] 🗑️ Deleted temp CSV: {csv_path}")
+                        logger.debug(f"[LabelPrint] Deleted temp CSV: {csv_path}")
                     except OSError:
                         logger.warning(
-                            f"[LabelPrint] ⚠️ Cannot delete temp CSV: {csv_path}"
+                            f"[LabelPrint] Cannot delete temp CSV: {csv_path}"
                         )
 
             return output_pdf
@@ -287,7 +287,7 @@ class LabelPrintService:
         num_batches = len(chunks)
 
         logger.info(
-            f"[LabelPrint] 🚀 START job_id={job_id}, template={template_path}, "
+            f"[LabelPrint] START job_id={job_id}, template={template_path}, "
             f"labels={total_labels} → split into {num_batches} batches (max {max_per_batch}/batch)"
         )
 
@@ -298,11 +298,14 @@ class LabelPrintService:
         # Log batch size distribution
         batch_sizes = [len(chunk) for chunk in chunks]
         logger.debug(
-            f"[LabelPrint] 📦 Batch distribution: {batch_sizes} "
+            f"[LabelPrint] Batch distribution: {batch_sizes} "
             f"(total={sum(batch_sizes)}, batches={num_batches})"
         )
 
         batch_pdfs: List[Path] = []
+        batch_pdf_paths = [
+            output_dir / f"{job_id}_batch{i}.pdf" for i in range(num_batches)
+        ]
         try:
             # Generate all batch PDFs in parallel
             tasks = [
@@ -318,38 +321,42 @@ class LabelPrintService:
                 )
                 for i, chunk in enumerate(chunks)
             ]
-            batch_pdfs = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            errors = [r for r in results if isinstance(r, Exception)]
+            if errors:
+                raise errors[0]
+            batch_pdfs = [r for r in results if isinstance(r, Path)]
 
             # Merge all batch PDFs
-            logger.debug(f"[LabelPrint] 📎 Merging {num_batches} PDFs...")
+            logger.debug(f"[LabelPrint] Merging {num_batches} PDFs...")
             merge_start = time.time()
             _merge_pdfs(batch_pdfs, output_pdf)
             merge_duration = time.time() - merge_start
-            logger.debug(f"[LabelPrint] 📎 Merge completed in {merge_duration:.2f}s")
+            logger.debug(f"[LabelPrint] Merge completed in {merge_duration:.2f}s")
 
             duration = time.time() - start_time
             logger.info(
-                f"[LabelPrint] ✅ job_id={job_id} finished in {duration:.2f}s "
-                f"({num_batches} batches merged) → {output_pdf}"
+                f"[LabelPrint] job_id={job_id} finished in {duration:.2f}s "
+                f"({num_batches} batches merged) -> {output_pdf}"
             )
 
         except Exception as e:
             duration = time.time() - start_time
             logger.error(
-                f"[LabelPrint] ❌ job_id={job_id} failed after {duration:.2f}s: {e}"
+                f"[LabelPrint] job_id={job_id} failed after {duration:.2f}s: {e}"
             )
             raise RuntimeError(f"Label PDF generation failed: {e}") from e
 
         finally:
             # Cleanup all batch temp PDFs
-            for batch_pdf in batch_pdfs:
+            for batch_pdf in batch_pdf_paths:
                 if batch_pdf.exists():
                     try:
                         batch_pdf.unlink()
-                        logger.debug(f"[LabelPrint] 🗑️ Deleted batch PDF: {batch_pdf}")
+                        logger.debug(f"[LabelPrint] Deleted batch PDF: {batch_pdf}")
                     except OSError:
                         logger.warning(
-                            f"[LabelPrint] ⚠️ Cannot delete batch PDF: {batch_pdf}"
+                            f"[LabelPrint] Cannot delete batch PDF: {batch_pdf}"
                         )
 
         return output_pdf

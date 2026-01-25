@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Maximum labels per batch before auto-splitting and PDF merging
     # Set to 0 to disable (not recommended for large datasets)
     # Recommended: 200-300 for ARM/embedded, 500-800 for x86 servers
+    MAX_LABELS_PER_JOB: int = 2000
+    # Maximum labels allowed per request job
+    # Prevents oversized requests from exhausting memory
 
     RETENTION_HOURS: int = 24
     # Hours to keep job states in memory before cleanup (avoids memory bloat)
@@ -46,6 +49,21 @@ class Settings(BaseSettings):
 
     LOG_DIR: str = "logs"
     # Directory for log files. Can be relative or absolute. Default: logs
+
+    MAX_REQUEST_BYTES: int = 5_000_000
+    # Maximum allowed HTTP request body size in bytes (approx 5 MB)
+
+    MAX_FIELDS_PER_LABEL: int = 50
+    # Maximum number of fields allowed per label record
+
+    MAX_FIELD_LENGTH: int = 2048
+    # Maximum length allowed for any single field value
+
+    # -------------------------
+    # CORS settings
+    # -------------------------
+    CORS_ALLOW_ORIGINS: str = ""
+    # Comma-separated list of allowed origins. Leave empty to disable CORS.
 
     # -------------------------
     # Internal settings

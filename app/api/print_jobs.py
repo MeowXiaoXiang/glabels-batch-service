@@ -14,6 +14,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 
+from app.config import settings
 from app.schema import (JobStatusResponse, JobSubmitResponse, LabelRequest,
                         TemplateInfo)
 
@@ -122,6 +123,14 @@ async def submit_labels(
 
     > **Note**: Use `/templates` endpoint to discover available templates and their required fields.
     """
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > settings.MAX_REQUEST_BYTES:
+                raise HTTPException(status_code=413, detail="Request body too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length")
+
     job_manager = request.app.state.job_manager
     job_id = await job_manager.submit_job(req)
     return JobSubmitResponse(job_id=job_id)
@@ -205,10 +214,10 @@ async def get_job_status(job_id: str, request: Request):
 
     | Status | State | Description |
     |--------|-------|-------------|
-    | `pending` | ⏳ Queued | Waiting to be processed (in queue) |
-    | `running` | 🔄 Active | Processing (generating PDF) |
-    | `done` | ✅ Complete | PDF available for download |
-    | `failed` | ❌ Error | Check error field for details |
+    | `pending` | Queued | Waiting to be processed (in queue) |
+    | `running` | Active | Processing (generating PDF) |
+    | `done` | Complete | PDF available for download |
+    | `failed` | Error | Check error field for details |
 
     ## Response Fields
 
@@ -350,7 +359,7 @@ async def stream_job_status(job_id: str, request: Request):
         410: {"description": "File has been deleted"},
     },
 )
-async def download_job_pdf(job_id: str, request: Request):
+async def download_job_pdf(job_id: str, request: Request, preview: bool = False):
     """
     Download the generated PDF file when job status is `done`.
 
@@ -358,9 +367,9 @@ async def download_job_pdf(job_id: str, request: Request):
 
     | Requirement | Status Check |
     |-------------|--------------|
-    | Job exists | ✅ Job ID must be valid |
-    | Status is `done` | ✅ PDF generation completed |
-    | File available | ✅ PDF not deleted by cleanup |
+    | Job exists | Job ID must be valid |
+    | Status is `done` | PDF generation completed |
+    | File available | PDF not deleted by cleanup |
 
     ## Download Process
 
@@ -391,10 +400,15 @@ async def download_job_pdf(job_id: str, request: Request):
     if not file_path.exists():
         raise HTTPException(status_code=410, detail="File has been deleted")
 
+    headers = None
+    if preview:
+        headers = {"Content-Disposition": f'inline; filename="{file_path.name}"'}
+
     return FileResponse(
         file_path,
         filename=file_path.name,
         media_type="application/pdf",
+        headers=headers,
     )
 
 
@@ -462,10 +476,10 @@ async def list_jobs(request: Request, limit: int = 10):
 
     | Status | Icon | Meaning |
     |--------|------|---------|
-    | `pending` | ⏳ | Waiting in queue |
-    | `running` | 🔄 | Processing |
-    | `done` | ✅ | Ready for download |
-    | `failed` | ❌ | Processing error |
+    | `pending` | Waiting in queue |
+    | `running` | Processing |
+    | `done` | Ready for download |
+    | `failed` | Processing error |
 
     > **Tip**: Use `limit=50` to see more job history
     """
@@ -529,8 +543,8 @@ async def list_templates():
 
     | Headers | `has_headers` | `fields` Example | Usage |
     |---------|---------------|------------------|--------|
-    | ✅ With Headers | `true` | `["CODE", "ITEM"]` | CSV with header row |
-    | ❌ No Headers | `false` | `["1", "2"]` | CSV with position-based fields |
+    | With Headers | `true` | `["CODE", "ITEM"]` | CSV with header row |
+    | No Headers | `false` | `["1", "2"]` | CSV with position-based fields |
 
     > **Note**: All templates currently return `format_type: "CSV"` regardless of header configuration
 
@@ -600,7 +614,7 @@ async def get_template_info(template_name: str):
 
     | Parameter | Type | Required | Description |
     |-----------|------|----------|-------------|
-    | `template_name` | string | ✅ Yes | Template filename (e.g., `"demo.glabels"`) |
+    | `template_name` | string | Yes | Template filename (e.g., `"demo.glabels"`) |
 
     ## Response Details
 

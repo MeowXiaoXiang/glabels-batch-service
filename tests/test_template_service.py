@@ -4,9 +4,9 @@ Unit tests for TemplateService
 ==============================
 
 Covers essential functionality:
-- ✅ Template discovery and listing
-- � Template information retrieval
-- ❌ Basic error handling
+- Template discovery and listing
+- Template information retrieval
+- Basic error handling
 """
 
 from pathlib import Path
@@ -29,7 +29,7 @@ class TestTemplateService:
     @patch("app.services.template_service.Path.is_dir")
     @patch("app.services.template_service.Path.glob")
     def test_list_templates_success(self, mock_glob, mock_is_dir, mock_exists, service):
-        """📋 Should list all templates with their information."""
+        """Should list all templates with their information."""
         # Setup mocks
         mock_exists.return_value = True
         mock_is_dir.return_value = True
@@ -70,7 +70,7 @@ class TestTemplateService:
 
     @patch("app.services.template_service.Path.exists")
     def test_list_templates_directory_not_exists(self, mock_exists, service):
-        """📂 Should return empty list when templates directory doesn't exist."""
+        """Should return empty list when templates directory doesn't exist."""
         mock_exists.return_value = False
 
         templates = service.list_templates()
@@ -80,7 +80,7 @@ class TestTemplateService:
     @patch("app.services.template_service.Path.exists")
     @patch("app.parsers.get_parser")
     def test_get_template_info_success(self, mock_get_parser, mock_exists, service):
-        """🔍 Should get template information successfully."""
+        """Should get template information successfully."""
         mock_exists.return_value = True
 
         # Mock parser
@@ -104,16 +104,21 @@ class TestTemplateService:
 
     @patch("app.services.template_service.Path.exists")
     def test_get_template_info_not_found(self, mock_exists, service):
-        """❌ Should raise FileNotFoundError when template doesn't exist."""
+        """Should raise FileNotFoundError when template doesn't exist."""
         mock_exists.return_value = False
 
         with pytest.raises(FileNotFoundError, match="Template file not found"):
             service.get_template_info("missing.glabels")
 
+    def test_get_template_info_rejects_path_traversal(self, service):
+        """Should reject template names with path separators."""
+        with pytest.raises(ValueError, match="must not include path separators"):
+            service.get_template_info("../secrets.glabels")
+
     @patch("gzip.open")
     @patch("xml.etree.ElementTree.fromstring")
     def test_detect_format_csv(self, mock_fromstring, mock_gzip_open, service):
-        """🏭 Should detect CSV format for comma-based merge types."""
+        """Should detect CSV format for comma-based merge types."""
         # Mock XML content
         mock_root = Mock()
         mock_merge = Mock()
@@ -132,7 +137,7 @@ class TestTemplateService:
     @patch("gzip.open")
     @patch("xml.etree.ElementTree.fromstring")
     def test_detect_format_unsupported(self, mock_fromstring, mock_gzip_open, service):
-        """❌ Should raise ValueError for unsupported merge type."""
+        """Should raise ValueError for unsupported merge type."""
         # Mock XML content
         mock_root = Mock()
         mock_merge = Mock()

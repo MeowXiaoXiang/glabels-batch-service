@@ -19,13 +19,14 @@ pytest tests/ --cov=app --cov-report=html
 
 | Test File | Tests | Purpose |
 |-----------|-------|---------|
-| `test_glabels_engine.py` | 6 | Core CLI wrapper functionality |
-| `test_job_manager.py` | 5 | Job lifecycle and worker management |
+| `test_glabels_engine.py` | 7 | Core CLI wrapper functionality |
+| `test_job_manager.py` | 7 | Job lifecycle and worker management |
 | `test_template_service.py` | 6 | Template discovery and parsing |
 | `test_integration.py` | 4 | End-to-end workflows |
-| `test_api_endpoints.py` | 1 | Basic API validation |
+| `test_api_endpoints.py` | 11 | API endpoints and validation |
+| `test_label_print.py` | 16 | Label print service behavior |
 
-## Total: 22 focused tests
+## Total: 51 focused tests
 
 ## What Each Test Covers
 
@@ -33,55 +34,63 @@ pytest tests/ --cov=app --cov-report=html
 
 Tests the CLI wrapper that executes gLabels commands:
 
-- ✅ Successful PDF generation
-- ❌ Command failures and error handling  
-- ⏱️ Timeout scenarios
-- 📂 Missing files detection
-- 🧵 Long error output truncation
+- Successful PDF generation
+- Command failures and error handling
+- Timeout scenarios
+- Missing files detection
+- Long error output truncation
 
 ### `test_job_manager.py`
 
 Tests asynchronous job processing:
 
-- 📥 Job submission and queuing
-- ✅ Job completion tracking
-- ❌ Error propagation and failure handling
-- 🗑️ Automatic cleanup of old jobs
-- 📋 Job status and listing
+- Job submission and queuing
+- Job completion tracking
+- Error propagation and failure handling
+- Automatic cleanup of old jobs
+- Job status and listing
 
 ### `test_template_service.py`
 
 Tests template file management:
 
-- 📋 Template discovery in directories
-- 🔍 Template info extraction
-- 🏭 Format detection (CSV/TSV detection)
-- ❌ Error handling for invalid templates
-- 📂 Missing directory handling
+- Template discovery in directories
+- Template info extraction
+- Format detection (CSV/TSV detection)
+- Error handling for invalid templates
+- Missing directory handling
 
 ### `test_integration.py`
 
 Tests end-to-end workflows:
 
-- 🔄 Template discovery workflow
-- 📊 Template info retrieval process
-- 🏭 Job manager integration
-- ❌ Error propagation across components
+- Template discovery workflow
+- Template info retrieval process
+- Job manager integration
+- Error propagation across components
 
 ### `test_api_endpoints.py`
 
-Tests API input validation:
+Tests API endpoints and validation:
 
-- ❌ Invalid template name rejection
+- Invalid template name rejection
+
+### `test_label_print.py`
+
+Tests label print service behavior:
+
+- CSV generation and field ordering
+- Batch splitting and PDF merging
+- Cleanup of temporary files
 
 ## Testing Philosophy
 
 This test suite follows a **focused testing** approach:
 
-- ✅ **Test business logic**, not framework features
-- 🎯 **Mock external dependencies** (filesystem, subprocess, network)
-- ⚡ **Fast execution** - complete suite runs in under 1 second
-- � **Easy maintenance** - tests focus on critical functionality
+- **Test business logic**, not framework features
+- **Mock external dependencies** (filesystem, subprocess, network)
+- **Fast execution** - complete suite runs in under 1 second
+- **Easy maintenance** - tests focus on critical functionality
 
 ## Test Execution Tips
 

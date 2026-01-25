@@ -4,12 +4,13 @@ Unit tests for LabelPrintService
 ================================
 
 Covers:
-- 📦 _chunk_list utility function
-- 📎 _merge_pdfs utility function
-- 🔄 Batch splitting logic (when labels exceed MAX_LABELS_PER_BATCH)
-- ✅ Single batch processing (when labels fit in one batch)
+- _chunk_list utility function
+- _merge_pdfs utility function
+- Batch splitting logic (when labels exceed MAX_LABELS_PER_BATCH)
+- Single batch processing (when labels fit in one batch)
 """
 
+import csv
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,31 +31,31 @@ class TestUtilityFunctions:
     """Tests for utility functions"""
 
     def test_chunk_list_basic(self):
-        """📦 Should split list into chunks of specified size"""
+        """Should split list into chunks of specified size"""
         data = [1, 2, 3, 4, 5, 6, 7]
         result = _chunk_list(data, 3)
         assert result == [[1, 2, 3], [4, 5, 6], [7]]
 
     def test_chunk_list_exact_fit(self):
-        """📦 Should handle exact multiples correctly"""
+        """Should handle exact multiples correctly"""
         data = [1, 2, 3, 4, 5, 6]
         result = _chunk_list(data, 3)
         assert result == [[1, 2, 3], [4, 5, 6]]
 
     def test_chunk_list_smaller_than_chunk(self):
-        """📦 Should return single chunk if data is smaller"""
+        """Should return single chunk if data is smaller"""
         data = [1, 2]
         result = _chunk_list(data, 5)
         assert result == [[1, 2]]
 
     def test_chunk_list_zero_size(self):
-        """📦 Should return original list if chunk_size is 0"""
+        """Should return original list if chunk_size is 0"""
         data = [1, 2, 3]
         result = _chunk_list(data, 0)
         assert result == [[1, 2, 3]]
 
     def test_chunk_list_negative_size(self):
-        """📦 Should return original list if chunk_size is negative"""
+        """Should return original list if chunk_size is negative"""
         data = [1, 2, 3]
         result = _chunk_list(data, -1)
         assert result == [[1, 2, 3]]
@@ -84,28 +85,25 @@ class TestUtilityFunctions:
 class TestMergePdfs:
     """Tests for PDF merging"""
 
-    def test_merge_pdfs_creates_output(self):
-        """📎 Should merge multiple PDFs into one"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+    def test_merge_pdfs_creates_output(self, tmp_path):
+        """Should merge multiple PDFs into one"""
+        # Create 3 simple PDFs
+        pdf_paths = []
+        for i in range(3):
+            pdf_path = tmp_path / f"test_{i}.pdf"
+            writer = PdfWriter()
+            writer.add_blank_page(width=100, height=100)
+            with pdf_path.open("wb") as f:
+                writer.write(f)
+            pdf_paths.append(pdf_path)
 
-            # Create 3 simple PDFs
-            pdf_paths = []
-            for i in range(3):
-                pdf_path = temp_path / f"test_{i}.pdf"
-                writer = PdfWriter()
-                writer.add_blank_page(width=100, height=100)
-                with pdf_path.open("wb") as f:
-                    writer.write(f)
-                pdf_paths.append(pdf_path)
+        # Merge them
+        output_path = tmp_path / "merged.pdf"
+        _merge_pdfs(pdf_paths, output_path)
 
-            # Merge them
-            output_path = temp_path / "merged.pdf"
-            _merge_pdfs(pdf_paths, output_path)
-
-            # Verify output exists and has content
-            assert output_path.exists()
-            assert output_path.stat().st_size > 0
+        # Verify output exists and has content
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
 
 
 class TestLabelPrintServiceBatching:
@@ -119,7 +117,7 @@ class TestLabelPrintServiceBatching:
 
     @pytest.mark.asyncio
     async def test_no_batching_when_disabled(self, service, monkeypatch, tmp_path):
-        """✅ Should not batch when MAX_LABELS_PER_BATCH=0"""
+        """Should not batch when MAX_LABELS_PER_BATCH=0"""
         # Mock settings
         mock_settings = MagicMock()
         mock_settings.MAX_LABELS_PER_BATCH = 0  # Disabled
@@ -169,7 +167,7 @@ class TestLabelPrintServiceBatching:
 
     @pytest.mark.asyncio
     async def test_batching_when_exceeds_limit(self, service, monkeypatch, tmp_path):
-        """🔄 Should split into batches when labels exceed MAX_LABELS_PER_BATCH"""
+        """Should split into batches when labels exceed MAX_LABELS_PER_BATCH"""
         # Mock settings with small batch size for testing
         mock_settings = MagicMock()
         mock_settings.MAX_LABELS_PER_BATCH = 3  # Small for testing
@@ -222,7 +220,7 @@ class TestLabelPrintServiceBatching:
 
     @pytest.mark.asyncio
     async def test_no_batching_when_under_limit(self, service, monkeypatch, tmp_path):
-        """✅ Should not batch when labels are under MAX_LABELS_PER_BATCH"""
+        """Should not batch when labels are under MAX_LABELS_PER_BATCH"""
         # Mock settings
         mock_settings = MagicMock()
         mock_settings.MAX_LABELS_PER_BATCH = 10  # Higher than our data count
@@ -266,7 +264,7 @@ class TestLabelPrintServiceBatching:
 
     @pytest.mark.asyncio
     async def test_batch_pdfs_are_cleaned_up(self, service, monkeypatch, tmp_path):
-        """🗑️ Batch PDFs should be deleted after merging"""
+        """Batch PDFs should be deleted after merging"""
         mock_settings = MagicMock()
         mock_settings.MAX_LABELS_PER_BATCH = 2
         monkeypatch.setattr("app.services.label_print.settings", mock_settings)
@@ -325,3 +323,44 @@ class TestLabelPrintServiceBatching:
         batch_pdfs = [p for p in created_pdfs if "_batch" in str(p.name)]
         for batch_pdf in batch_pdfs:
             assert not batch_pdf.exists(), f"Batch PDF {batch_pdf} should be deleted"
+
+
+class TestJsonToCsv:
+    """Tests for JSON to CSV conversion"""
+
+    def test_json_to_csv_writes_header_and_rows(self, tmp_path):
+        """Should write header and rows with expected fields"""
+        service = LabelPrintService(max_parallel=1, default_timeout=10, keep_csv=False)
+        csv_path = tmp_path / "out.csv"
+        data = [
+            {"ITEM": "A001", "CODE": "X123"},
+            {"ITEM": "A002", "CODE": "X124"},
+        ]
+
+        fields = service._json_to_csv(data, csv_path)
+
+        assert fields == ["ITEM", "CODE"]
+        with csv_path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert rows == data
+
+    def test_json_to_csv_empty_raises(self, tmp_path):
+        """Should raise for empty data"""
+        service = LabelPrintService(max_parallel=1, default_timeout=10, keep_csv=False)
+        csv_path = tmp_path / "out.csv"
+        with pytest.raises(ValueError, match="No label data"):
+            service._json_to_csv([], csv_path)
+
+    def test_json_to_csv_custom_field_order(self, tmp_path):
+        """Should respect custom field order"""
+        service = LabelPrintService(max_parallel=1, default_timeout=10, keep_csv=False)
+        csv_path = tmp_path / "out.csv"
+        data = [{"C": "c1", "B": "b1", "A": "a1"}]
+
+        fields = service._json_to_csv(data, csv_path, field_order=["A", "B", "C"])
+
+        assert fields == ["A", "B", "C"]
+        with csv_path.open("r", encoding="utf-8") as f:
+            header = f.readline().strip()
+        assert header == "A,B,C"

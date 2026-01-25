@@ -10,7 +10,7 @@
 A **FastAPI** microservice that provides REST API for label printing by integrating with **gLabels**.  
 Converts **JSON → CSV → gLabels Template → PDF** with async job processing, parallel execution, timeout handling, and file downloads.
 
-📖 **[中文版本 README](README_tw.md)**
+**[中文版本 README](README_tw.md)**
 
 ## Quick Start
 
@@ -153,9 +153,14 @@ RELOAD=false
 KEEP_CSV=false
 MAX_PARALLEL=0
 MAX_LABELS_PER_BATCH=300
+MAX_LABELS_PER_JOB=2000
 GLABELS_TIMEOUT=600
 RETENTION_HOURS=24
 LOG_LEVEL=INFO
+MAX_REQUEST_BYTES=5000000
+MAX_FIELDS_PER_LABEL=50
+MAX_FIELD_LENGTH=2048
+CORS_ALLOW_ORIGINS=
 ```
 
 ## Local Development
@@ -240,6 +245,12 @@ es.addEventListener('status', (e) => {
 curl -O http://localhost:8000/labels/jobs/abc123.../download
 ```
 
+Preview in browser:
+
+```bash
+curl http://localhost:8000/labels/jobs/abc123.../download?preview=true
+```
+
 ### List Templates
 
 ```bash
@@ -250,6 +261,7 @@ curl http://localhost:8000/labels/templates
 
 - Place `.glabels` template files in `templates/` directory
 - JSON data fields must match template variables
+- Data array must be non-empty and within configured limits
 - Generated PDFs saved to `output/` directory
 - Temporary CSV files in `temp/` (configurable retention)
 
@@ -302,6 +314,11 @@ docker compose exec label-service sh
 
 - `MAX_PARALLEL=0` auto-sets to CPU cores-1, adjust based on system performance
 - `MAX_LABELS_PER_BATCH=300` controls how many labels are processed per batch before merging into a single PDF
+- `MAX_LABELS_PER_JOB=2000` limits labels per request to avoid oversized jobs
+- `MAX_REQUEST_BYTES=5000000` caps request body size to protect memory usage
+- `MAX_FIELDS_PER_LABEL=50` limits the number of fields per label record
+- `MAX_FIELD_LENGTH=2048` limits the length of any single field value
+- `CORS_ALLOW_ORIGINS` comma-separated allowed origins (leave empty to disable CORS)
 - `GLABELS_TIMEOUT=600` increase if processing large datasets times out
 - `KEEP_CSV=true` enables CSV file retention for debugging purposes
 - `RETENTION_HOURS=24` controls how long jobs are kept in memory
