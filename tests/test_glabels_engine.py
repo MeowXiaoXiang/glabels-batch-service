@@ -16,8 +16,11 @@ import asyncio
 
 import pytest
 
-from app.utils.glabels_engine import (GlabelsEngine, GlabelsExecutionError,
-                                      GlabelsTimeoutError)
+from app.utils.glabels_engine import (
+    GlabelsEngine,
+    GlabelsExecutionError,
+    GlabelsTimeoutError,
+)
 
 
 class TestGlabelsEngine:
@@ -207,7 +210,7 @@ class TestGlabelsEngine:
                 else:
                     prefix = "glabels stderr (truncated):\n"
                     if message.startswith(prefix):
-                        captured["stderr_chunk"] = message[len(prefix):]
+                        captured["stderr_chunk"] = message[len(prefix) :]
                     else:
                         captured["stderr_chunk"] = message
 

@@ -3,7 +3,7 @@ Guidance for AI coding agents working on this repo.
 Keep concise, actionable, and project-specific.
 -->
 
-# Quick Agent Notes — labels-service-open-source
+# Quick Agent Notes — glabels-batch-service
 
 Short, focused guidance to help an AI coding assistant be productive in this repository.
 
@@ -26,7 +26,7 @@ Short, focused guidance to help an AI coding assistant be productive in this rep
     -   Jobs are stored in memory (`JobManager.jobs`); retention cleanup is time-based (`RETENTION_HOURS`). Cleanup runs: (1) at startup, (2) after each job completes, (3) every hour via `_cleanup_scheduler`. Avoid changing this semantics unless adding persistence.
     -   Concurrency is controlled in two layers: `JobManager.max_parallel` controls worker count; `GlabelsEngine` uses a semaphore for subprocess concurrency. Keep both in sync when modifying parallelism.
     -   File locations: `templates/` (read-only templates), `output/` (PDFs), `temp/` (optional CSV retention when `KEEP_CSV=true`), `logs/` (configurable via `LOG_DIR`). Do not hardcode absolute paths; use these relative directories.
-    -   Template filenames must end with `.glabels`. Validation is enforced in `LabelRequest` model and `_resolve_template`.
+-   Template filenames must end with `.glabels`. Validation is enforced in `LabelRequest` model and `TemplateService._resolve_template_path`.
 
 -   API endpoints reference:
 
@@ -48,11 +48,16 @@ Short, focused guidance to help an AI coding assistant be productive in this rep
     -   `HOST`, `PORT`, `RELOAD` — server config
     -   `KEEP_CSV` — retain temp CSV files for debugging
     -   `MAX_PARALLEL` — worker count (0 = auto)
-    -   `MAX_LABELS_PER_BATCH` — max labels per batch before auto-split and merge (default: 300)
-    -   `GLABELS_TIMEOUT` — subprocess timeout in seconds
-    -   `RETENTION_HOURS` — job retention before cleanup
-    -   `LOG_LEVEL` — logging verbosity
-    -   `LOG_DIR` — log file directory (default: `logs`)
+-   `MAX_LABELS_PER_BATCH` — max labels per batch before auto-split and merge (default: 300)
+-   `MAX_LABELS_PER_JOB` — max labels per request (default: 2000)
+-   `GLABELS_TIMEOUT` — subprocess timeout in seconds
+-   `RETENTION_HOURS` — job retention before cleanup
+-   `MAX_REQUEST_BYTES` — request body size cap (bytes)
+-   `MAX_FIELDS_PER_LABEL` — max fields per label record
+-   `MAX_FIELD_LENGTH` — max length per field value
+-   `LOG_LEVEL` — logging verbosity
+-   `LOG_DIR` — log file directory (default: `logs`)
+-   `CORS_ALLOW_ORIGINS` — comma-separated allowed origins (empty disables CORS)
 
 -   Developer workflows & useful commands (verified in README):
 

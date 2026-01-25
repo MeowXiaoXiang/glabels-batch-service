@@ -1,4 +1,4 @@
-# Labels Service (標籤列印服務)
+# gLabels Batch Service (標籤列印服務)
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.118.0-009688?logo=fastapi&logoColor=white)
@@ -80,7 +80,7 @@ open http://localhost:8000/docs
 ```bash
 # 1. 複製環境範本並建置映像檔
 cp .env.example .env
-docker build -t labels-service .
+docker build -t glabels-batch-service .
 
 # 2. 建立目錄 (請依需求調整路徑)
 mkdir -p /your/path/output /your/path/templates
@@ -88,13 +88,13 @@ mkdir -p /your/path/output /your/path/templates
 
 # 3. 使用 .env 檔案執行容器
 docker run -d \
-  --name labels-service \
+  --name glabels-batch-service \
   -p 8000:8000 \
   --env-file .env \
   -v /your/path/output:/app/output \
   -v /your/path/templates:/app/templates \
   --restart unless-stopped \
-  labels-service
+  glabels-batch-service
   # 只有當 KEEP_CSV=true 時才需要掛載 temp 目錄：
   # -v /your/path/temp:/app/temp \
 ```
@@ -103,7 +103,7 @@ docker run -d \
 
 ```bash
 # 1. 建置映像檔
-docker build -t labels-service .
+docker build -t glabels-batch-service .
 
 # 2. 建立目錄 (請依需求調整路徑)
 mkdir -p /your/path/output /your/path/templates
@@ -111,7 +111,7 @@ mkdir -p /your/path/output /your/path/templates
 
 # 3. 使用環境變數參數執行容器
 docker run -d \
-  --name labels-service \
+  --name glabels-batch-service \
   -p 8000:8000 \
   -e HOST=0.0.0.0 \
   -e PORT=8000 \
@@ -123,13 +123,13 @@ docker run -d \
   -v /your/path/output:/app/output \
   -v /your/path/templates:/app/templates \
   --restart unless-stopped \
-  labels-service
+  glabels-batch-service
   # 如果要保留 CSV 檔案，請設定 KEEP_CSV=true 並掛載 temp 目錄：
   # -e KEEP_CSV=true \
   # -v /your/path/temp:/app/temp \
 
 # 4. 檢查日誌
-docker logs -f labels-service
+docker logs -f glabels-batch-service
 
 # 5. 存取 API 文件
 open http://localhost:8000/docs
@@ -138,8 +138,8 @@ open http://localhost:8000/docs
 **停止與清理：**
 
 ```bash
-docker stop labels-service
-docker rm labels-service
+docker stop glabels-batch-service
+docker rm glabels-batch-service
 ```
 
 ## 環境變數設定
@@ -301,7 +301,7 @@ docker compose logs -f
 docker compose ps
 
 # 進入容器 shell
-docker compose exec label-service sh
+docker compose exec glabels-batch-service sh
 ```
 
 ## 部署建議

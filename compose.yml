@@ -1,5 +1,5 @@
 services:
-  label-service:
+  glabels-batch-service:
     build: .
     env_file: .env  # Load environment variables from .env file
     volumes:

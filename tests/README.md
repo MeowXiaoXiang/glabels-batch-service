@@ -1,6 +1,6 @@
 # Test Suite
 
-Essential unit tests for the labels-service project, focusing on core functionality and business logic.
+Essential unit tests for the glabels-batch-service project, focusing on core functionality and business logic.
 
 ## Quick Start
 

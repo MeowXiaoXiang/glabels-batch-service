@@ -1,4 +1,4 @@
-# Labels Service
+# gLabels Batch Service
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.119.0-009688?logo=fastapi&logoColor=white)
@@ -80,7 +80,7 @@ open http://localhost:8000/docs
 ```bash
 # 1. Copy environment template and build image
 cp .env.example .env
-docker build -t labels-service .
+docker build -t glabels-batch-service .
 
 # 2. Create directories (adjust paths as needed)
 mkdir -p /path/to/your/output /path/to/your/templates
@@ -88,13 +88,13 @@ mkdir -p /path/to/your/output /path/to/your/templates
 
 # 3. Run container with .env file
 docker run -d \
-  --name labels-service \
+  --name glabels-batch-service \
   -p 8000:8000 \
   --env-file .env \
   -v /path/to/your/output:/app/output \
   -v /path/to/your/templates:/app/templates \
   --restart unless-stopped \
-  labels-service
+  glabels-batch-service
   # Add temp volume only if KEEP_CSV=true:
   # -v /path/to/your/temp:/app/temp \
 ```
@@ -103,7 +103,7 @@ docker run -d \
 
 ```bash
 # 1. Build image
-docker build -t labels-service .
+docker build -t glabels-batch-service .
 
 # 2. Create directories (adjust paths as needed)
 mkdir -p /path/to/your/output /path/to/your/templates
@@ -111,7 +111,7 @@ mkdir -p /path/to/your/output /path/to/your/templates
 
 # 3. Run container with environment variables
 docker run -d \
-  --name labels-service \
+  --name glabels-batch-service \
   -p 8000:8000 \
   -e HOST=0.0.0.0 \
   -e PORT=8000 \
@@ -123,13 +123,13 @@ docker run -d \
   -v /path/to/your/output:/app/output \
   -v /path/to/your/templates:/app/templates \
   --restart unless-stopped \
-  labels-service
+  glabels-batch-service
   # Add temp volume and set KEEP_CSV=true if you want to retain CSV files:
   # -e KEEP_CSV=true \
   # -v /path/to/your/temp:/app/temp \
 
 # 4. Check logs
-docker logs -f labels-service
+docker logs -f glabels-batch-service
 
 # 5. Access API docs
 open http://localhost:8000/docs
@@ -138,8 +138,8 @@ open http://localhost:8000/docs
 **Stop and cleanup:**
 
 ```bash
-docker stop labels-service
-docker rm labels-service
+docker stop glabels-batch-service
+docker rm glabels-batch-service
 ```
 
 ## Environment Variables
@@ -301,7 +301,7 @@ docker compose logs -f
 docker compose ps
 
 # Access container shell
-docker compose exec label-service sh
+docker compose exec glabels-batch-service sh
 ```
 
 ## Deployment Notes

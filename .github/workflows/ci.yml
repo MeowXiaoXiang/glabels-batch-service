@@ -44,11 +44,11 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -t labels-service:latest .
+        docker build -t glabels-batch-service:latest .
 
     - name: Test Docker container
       run: |
-        docker run --rm -d --name test-container -p 8000:8000 labels-service:latest
+        docker run --rm -d --name test-container -p 8000:8000 glabels-batch-service:latest
         sleep 10
         curl -f http://localhost:8000/info || exit 1
         docker stop test-container
