@@ -1,0 +1,68 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode
+.idea
+*.sublime-project
+*.sublime-workspace
+
+# Documentation (except README)
+*.md
+!README.md
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Data directories
+output/
+logs/
+temp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# Tests
+tests/
+test_data/
+*.test
+.hypothesis/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+
+# OS
+.DS_Store
+Thumbs.db
