@@ -25,6 +25,158 @@ docker compose up -d
 open http://localhost:8000/docs
 ```
 
+## Quick Start (Development)
+
+### Option 1: Native Development (Linux/Mac/WSL)
+
+**Requirements:**
+- Python 3.12
+- Linux or WSL2 (gLabels only supports Linux)
+
+```bash
+# 1. Copy environment template
+cp .env.example .env
+
+# 2. Setup virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# 4. Install gLabels
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
+
+# 5. Run with uvicorn (auto-reload enabled)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Or press F5 in VS Code for debugging
+```
+
+### Option 2: Docker Development (Windows/Cross-platform)
+
+```bash
+# 1. Copy environment template
+cp .env.example .env
+
+# 2. Start with Docker Compose (hot reload enabled)
+docker compose up -d
+
+# 3. View logs
+docker compose logs -f
+
+# 4. Open API docs
+open http://localhost:8000/docs
+```
+
+The development setup includes:
+- Hot reload on code changes (via `--reload` flag or mounted ./app directory)
+- Debug-level logging
+- CSV file retention for debugging
+
+---
+
+## Production Deployment
+
+### Method 1: Using Environment Variables (Recommended)
+
+Set environment variables in your deployment platform (Kubernetes, AWS ECS, etc.):
+
+```bash
+# Build image
+docker build -t glabels-batch-service:latest .
+
+# Run with environment variables
+docker run -d \
+  --name glabels-batch-service \
+  -p 8000:8000 \
+  -e ENVIRONMENT=production \
+  -e RELOAD=false \
+  -e LOG_LEVEL=WARNING \
+  -e KEEP_CSV=false \
+  -e MAX_PARALLEL=4 \
+  -v /data/output:/app/output \
+  -v /data/templates:/app/templates \
+  -v /data/logs:/app/logs \
+  --restart always \
+  glabels-batch-service:latest
+```
+
+### Method 2: Using compose.prod.yml
+
+```bash
+# 1. Set environment variables in your system or CI/CD
+export ENVIRONMENT=production
+export LOG_LEVEL=WARNING
+export MAX_PARALLEL=4
+# ... other settings
+
+# 2. Start production service
+docker compose -f compose.prod.yml up -d
+
+# 3. Check status
+docker compose -f compose.prod.yml ps
+docker compose -f compose.prod.yml logs -f
+```
+
+### Production Checklist
+
+Before deploying to production, ensure:
+
+- [ ] `ENVIRONMENT=production` is set
+- [ ] `RELOAD=false` (CRITICAL - will fail validation if true)
+- [ ] `LOG_LEVEL` set to WARNING or ERROR
+- [ ] `KEEP_CSV=false` (saves disk space)
+- [ ] Set `MAX_PARALLEL` based on available CPU cores
+- [ ] Configure proper volume mounts for `/app/output`, `/app/templates`, `/app/logs`
+- [ ] Set up monitoring for `/health` endpoint
+- [ ] Configure resource limits (CPU/memory)
+- [ ] Use secrets management for sensitive configuration
+- [ ] **Never commit .env.production to git** - use system environment variables instead
+
+---
+
+## Configuration Priority
+
+Configuration is loaded in the following order (later overrides earlier):
+
+1. **Default values** in `app/config.py`
+2. **`.env` file** (if it exists) - used in development
+3. **System environment variables** - recommended for production
+
+Example:
+```bash
+# .env file has: LOG_LEVEL=DEBUG
+# System env has: export LOG_LEVEL=WARNING
+# Result: LOG_LEVEL=WARNING (system env wins)
+```
+
+---
+
+## Environment Files
+
+| File | Purpose | Commit to Git? |
+|------|---------|----------------|
+| `.env.example` | Development template | ✅ Yes |
+| `.env.production.example` | Production template | ✅ Yes |
+| `.env` | Development configuration | ❌ No |
+| `.env.production` | Production configuration | ❌ No |
+| `.env.local` | Local overrides | ❌ No |
+
+---
+
+## Security Notice
+
+**Important:** Never commit environment files with real values (`.env`, `.env.production`) to version control.
+
+- `.env.example` and `.env.production.example` are safe templates
+- `compose.prod.yml` uses `${VAR:-default}` syntax to load from system environment
+- For production, prefer system environment variables over `.env` files
+- The application validates that `RELOAD=false` in production mode
+
+---
+
 ## Architecture
 
 ```text
@@ -54,7 +206,9 @@ app/
 - Docker & Docker Compose
 - gLabels software (automatically installed in Docker container)
 
-## Docker Setup
+## Docker Setup (Alternative Methods)
+
+**Note:** For quick start, see the sections above. This section provides alternative Docker deployment methods.
 
 ### Option 1: Docker Compose (Recommended)
 
@@ -165,29 +319,7 @@ CORS_ALLOW_ORIGINS=
 
 ## Local Development
 
-**Note**: For local development, you need Linux or WSL2 since gLabels only supports Linux platforms.
-
-```bash
-# Setup virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install development dependencies (for testing and linting)
-pip install -r requirements-dev.txt
-
-# Install gLabels on your Linux system (required dependency)
-sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
-
-# Run application
-python -m app.main
-```
-
-### VS Code Debugging (F5)
-
-The project includes `.vscode/launch.json` for debugging. Simply press **F5** to start debugging with breakpoints.
+See the **[Quick Start (Development)](#quick-start-development)** section above for detailed local development setup instructions.
 
 ## API Examples
 

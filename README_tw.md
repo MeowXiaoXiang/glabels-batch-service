@@ -25,6 +25,158 @@ docker compose up -d
 open http://localhost:8000/docs
 ```
 
+## 快速開始（開發模式）
+
+### 選項一：原生開發（Linux/Mac/WSL）
+
+**系統需求：**
+- Python 3.12
+- Linux 或 WSL2（gLabels 僅支援 Linux）
+
+```bash
+# 1. 複製環境設定模板
+cp .env.example .env
+
+# 2. 設定虛擬環境
+python -m venv venv
+source venv/bin/activate
+
+# 3. 安裝依賴套件
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# 4. 安裝 gLabels
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
+
+# 5. 使用 uvicorn 執行（啟用自動重載）
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 或在 VS Code 中按 F5 進行除錯
+```
+
+### 選項二：Docker 開發（Windows/跨平台）
+
+```bash
+# 1. 複製環境設定模板
+cp .env.example .env
+
+# 2. 使用 Docker Compose 啟動（啟用熱重載）
+docker compose up -d
+
+# 3. 查看日誌
+docker compose logs -f
+
+# 4. 開啟 API 文件
+open http://localhost:8000/docs
+```
+
+開發環境設定包含：
+- 程式碼變更時自動重載（透過 `--reload` 旗標或掛載 ./app 目錄）
+- 除錯級別的日誌記錄
+- 保留 CSV 檔案以便除錯
+
+---
+
+## 正式環境部署
+
+### 方法一：使用環境變數（建議）
+
+在您的部署平台（Kubernetes、AWS ECS 等）設定環境變數：
+
+```bash
+# 建置映像檔
+docker build -t glabels-batch-service:latest .
+
+# 使用環境變數執行
+docker run -d \
+  --name glabels-batch-service \
+  -p 8000:8000 \
+  -e ENVIRONMENT=production \
+  -e RELOAD=false \
+  -e LOG_LEVEL=WARNING \
+  -e KEEP_CSV=false \
+  -e MAX_PARALLEL=4 \
+  -v /data/output:/app/output \
+  -v /data/templates:/app/templates \
+  -v /data/logs:/app/logs \
+  --restart always \
+  glabels-batch-service:latest
+```
+
+### 方法二：使用 compose.prod.yml
+
+```bash
+# 1. 在系統或 CI/CD 中設定環境變數
+export ENVIRONMENT=production
+export LOG_LEVEL=WARNING
+export MAX_PARALLEL=4
+# ... 其他設定
+
+# 2. 啟動正式環境服務
+docker compose -f compose.prod.yml up -d
+
+# 3. 檢查狀態
+docker compose -f compose.prod.yml ps
+docker compose -f compose.prod.yml logs -f
+```
+
+### 正式環境檢查清單
+
+部署到正式環境前，請確認：
+
+- [ ] 已設定 `ENVIRONMENT=production`
+- [ ] `RELOAD=false`（關鍵設定 - 若為 true 將無法通過驗證）
+- [ ] `LOG_LEVEL` 設為 WARNING 或 ERROR
+- [ ] `KEEP_CSV=false`（節省磁碟空間）
+- [ ] 根據可用 CPU 核心數設定 `MAX_PARALLEL`
+- [ ] 正確設定 `/app/output`、`/app/templates`、`/app/logs` 的磁碟區掛載
+- [ ] 為 `/health` 端點設定監控
+- [ ] 設定資源限制（CPU/記憶體）
+- [ ] 使用密鑰管理工具管理敏感設定
+- [ ] **絕不將 .env.production 提交至 git** - 請使用系統環境變數
+
+---
+
+## 設定檔載入優先順序
+
+設定檔按以下順序載入（後者覆蓋前者）：
+
+1. **預設值** 定義於 `app/config.py`
+2. **`.env` 檔案**（若存在）- 用於開發環境
+3. **系統環境變數** - 建議用於正式環境
+
+範例：
+```bash
+# .env 檔案中設定：LOG_LEVEL=DEBUG
+# 系統環境變數：export LOG_LEVEL=WARNING
+# 結果：LOG_LEVEL=WARNING（系統環境變數優先）
+```
+
+---
+
+## 環境設定檔說明
+
+| 檔案 | 用途 | 是否提交至 Git？ |
+|------|------|-----------------|
+| `.env.example` | 開發環境模板 | ✅ 是 |
+| `.env.production.example` | 正式環境模板 | ✅ 是 |
+| `.env` | 開發環境設定 | ❌ 否 |
+| `.env.production` | 正式環境設定 | ❌ 否 |
+| `.env.local` | 本地覆寫設定 | ❌ 否 |
+
+---
+
+## 安全性注意事項
+
+**重要：** 絕不將包含實際值的環境設定檔（`.env`、`.env.production`）提交至版本控制系統。
+
+- `.env.example` 和 `.env.production.example` 是安全的範本檔案
+- `compose.prod.yml` 使用 `${VAR:-default}` 語法從系統環境載入變數
+- 正式環境建議使用系統環境變數而非 `.env` 檔案
+- 應用程式會驗證在正式環境模式下 `RELOAD=false`
+
+---
+
 ## 架構說明
 
 ```text
@@ -54,7 +206,9 @@ app/
 - Docker 與 Docker Compose
 - gLabels 軟體 (Docker 容器中自動安裝)
 
-## Docker 部署
+## Docker 部署（其他方法）
+
+**注意：** 快速開始請參閱上方章節。本節提供其他 Docker 部署方法。
 
 ### 方案一：Docker Compose (建議)
 
@@ -163,31 +317,9 @@ MAX_FIELD_LENGTH=2048       # 單一欄位最大字元長度
 CORS_ALLOW_ORIGINS=
 ```
 
-## 本機開發
+## 本地開發
 
-**注意**: 本機開發需要 Linux 或 WSL2 環境，因為 gLabels 僅支援 Linux 平台。
-
-```bash
-# 建立虛擬環境
-python -m venv venv
-source venv/bin/activate
-
-# 安裝相依套件
-pip install -r requirements.txt
-
-# 安裝開發相依套件 (測試與程式碼品質工具)
-pip install -r requirements-dev.txt
-
-# 在 Linux 系統上安裝 gLabels (必要相依軟體)
-sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
-
-# 執行應用程式
-python -m app.main
-```
-
-### VS Code 偵錯 (F5)
-
-專案已包含 `.vscode/launch.json` 偵錯配置。直接按 **F5** 即可開始偵錯，支援中斷點功能。
+詳細的本地開發設定說明請參閱上方的 **[快速開始（開發模式）](#快速開始開發模式)** 章節。
 
 ## API 使用範例
 
