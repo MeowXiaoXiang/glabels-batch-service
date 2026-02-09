@@ -388,7 +388,7 @@ pytest tests/test_glabels_engine.py -v
 ```bash
 # 建立虛擬環境
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate
 
 # 安裝開發依賴
 pip install -r requirements.txt
