@@ -11,7 +11,7 @@ services:
       - HOST=${HOST:-0.0.0.0}
       - PORT=${PORT:-8000}
       - RELOAD=false  # CRITICAL: Must be false in production
-      
+
       # Application settings
       - KEEP_CSV=${KEEP_CSV:-false}
       - MAX_PARALLEL=${MAX_PARALLEL:-0}
@@ -22,25 +22,25 @@ services:
       - MAX_REQUEST_BYTES=${MAX_REQUEST_BYTES:-5000000}
       - MAX_FIELDS_PER_LABEL=${MAX_FIELDS_PER_LABEL:-50}
       - MAX_FIELD_LENGTH=${MAX_FIELD_LENGTH:-2048}
-      
+
       # Logging settings
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
       - LOG_DIR=${LOG_DIR:-logs}
-      
+
       # CORS settings
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
-    
+
     volumes:
       # Only mount data directories (NOT source code)
       - ${OUTPUT_DIR:-./output}:/app/output
       - ${TEMPLATE_DIR:-./templates}:/app/templates
       - ${LOG_DIR:-./logs}:/app/logs
-    
+
     ports:
       - "${EXTERNAL_PORT:-8000}:8000"
-    
+
     restart: always
-    
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
