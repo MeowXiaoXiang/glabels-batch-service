@@ -2,10 +2,19 @@
 # Global configuration file: loads environment variables and .env
 # Using pydantic-settings to automatically map env vars to Python attributes
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # -------------------------
+    # Environment configuration
+    # -------------------------
+    ENVIRONMENT: str = "production"
+    # Environment mode: development / production
+    # Controls safety validations and default behaviors
+
     # -------------------------
     # Server configuration
     # -------------------------
@@ -68,8 +77,20 @@ class Settings(BaseSettings):
     # -------------------------
     # Internal settings
     # -------------------------
-    # Load .env file from project root
-    model_config = SettingsConfigDict(env_file=".env")
+    # Load .env file from project root (if exists)
+    model_config = SettingsConfigDict(
+        env_file=".env" if Path(".env").exists() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    def model_post_init(self, __context) -> None:
+        """Production safety validation."""
+        if self.ENVIRONMENT == "production" and self.RELOAD:
+            raise ValueError(
+                "RELOAD must be false in production! "
+                "Set RELOAD=false or ENVIRONMENT=development"
+            )
 
 
 # Singleton instance

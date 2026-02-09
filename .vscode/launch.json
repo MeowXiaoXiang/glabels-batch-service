@@ -1,47 +1,24 @@
 {
-	// VS Code launch configuration (debug-only)
-	"version": "0.2.0",
-	"configurations": [
-		{
-			// Clear, debug-focused name for the configuration
-			"name": "Debug: Labels Service (FastAPI)",
-			// Use the debugpy adapter for Python debugging (recommended)
-			"type": "debugpy",
-			"request": "launch",
-			"cwd": "${workspaceFolder}",
-
-			// Start the application as a module: python -m app.main
-			"module": "app.main",
-			"args": [],
-
-			// Jinja template debugging: disabled by default (enable if needed)
-			"jinja": false,
-			// Prefer focusing on project code during debugging. Set to false when
-			// you need to step into library/framework internals.
-			"justMyCode": true,
-
-			// Environment variables (kept exactly as before)
-			"env": {
-				"PYTHONPATH": "${workspaceFolder}",
-
-				// --- Server settings ---
-				"HOST": "0.0.0.0",
-				"PORT": "8100",
-				"RELOAD": "true",
-
-				// --- Global controls ---
-				"KEEP_CSV": "true",
-				"MAX_PARALLEL": "2",
-				"GLABELS_TIMEOUT": "600",
-				"RETENTION_HOURS": "24",
-				"AUTO_CLEANUP_PDF": "true",
-
-				// --- Logging ---
-				"LOG_LEVEL": "DEBUG"
-			},
-
-			// Use the integrated terminal so output and input are available during debugging
-			"console": "integratedTerminal"
-		}
-	]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: FastAPI Dev",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "jinja": false,
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    }
+  ]
 }

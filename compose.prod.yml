@@ -1,0 +1,58 @@
+# Docker Compose - Production Mode
+# Usage: docker compose -f compose.prod.yml up -d
+# Recommended: Use system environment variables instead of .env files in production
+
+services:
+  glabels-batch-service:
+    build: .
+    environment:
+      # Environment and server settings
+      - ENVIRONMENT=production
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+      - RELOAD=false  # CRITICAL: Must be false in production
+      
+      # Application settings
+      - KEEP_CSV=${KEEP_CSV:-false}
+      - MAX_PARALLEL=${MAX_PARALLEL:-0}
+      - MAX_LABELS_PER_BATCH=${MAX_LABELS_PER_BATCH:-300}
+      - MAX_LABELS_PER_JOB=${MAX_LABELS_PER_JOB:-2000}
+      - GLABELS_TIMEOUT=${GLABELS_TIMEOUT:-600}
+      - RETENTION_HOURS=${RETENTION_HOURS:-24}
+      - MAX_REQUEST_BYTES=${MAX_REQUEST_BYTES:-5000000}
+      - MAX_FIELDS_PER_LABEL=${MAX_FIELDS_PER_LABEL:-50}
+      - MAX_FIELD_LENGTH=${MAX_FIELD_LENGTH:-2048}
+      
+      # Logging settings
+      - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+      - LOG_DIR=${LOG_DIR:-logs}
+      
+      # CORS settings
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+    
+    volumes:
+      # Only mount data directories (NOT source code)
+      - ${OUTPUT_DIR:-./output}:/app/output
+      - ${TEMPLATE_DIR:-./templates}:/app/templates
+      - ${LOG_DIR:-./logs}:/app/logs
+    
+    ports:
+      - "${EXTERNAL_PORT:-8000}:8000"
+    
+    restart: always
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M

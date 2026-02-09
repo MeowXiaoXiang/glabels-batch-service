@@ -1,11 +1,26 @@
+# Docker Compose - Development Mode (Default)
+# For production deployment, use compose.prod.yml instead
+
 services:
   glabels-batch-service:
     build: .
     env_file: .env  # Load environment variables from .env file
+    environment:
+      - ENVIRONMENT=development
+      - RELOAD=true
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
+      - ./app:/app/app:ro          # Mount for hot reload (read-only)
       - ./output:/app/output        # Output directory for generated PDFs
       - ./templates:/app/templates  # gLabels template files
-      # - ./temp:/app/temp            # Temporary CSV storage (Debug)
+      - ./logs:/app/logs            # Log files directory
+      # - ./temp:/app/temp          # Temporary CSV storage (Debug)
     ports:
       - "8000:8000"  # Expose API on port 8000
     restart: unless-stopped  # Restart container unless stopped manually
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
