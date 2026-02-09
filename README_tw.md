@@ -1,325 +1,65 @@
-# gLabels Batch Service (標籤列印服務)
+# gLabels Batch Service
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.118.0-009688?logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.119.0-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
 ![MIT License](https://img.shields.io/badge/License-MIT-green.svg)
 
-使用 **FastAPI** 整合 **gLabels** 的標籤列印微服務。  
-提供 REST API 將 **JSON → CSV → gLabels 模板 → PDF**，支援非同步任務處理、平行執行、逾時處理與檔案下載。
+使用 **FastAPI** 整合 **gLabels** 的標籤列印微服務。將 **JSON → CSV → gLabels 模板 → PDF**，支援非同步任務、平行處理、逾時控制。
 
 **[English Version README](README.md)**
+
+---
 
 ## 快速開始
 
 ```bash
-# 1. 複製環境設定檔
+# 1. 複製環境設定
 cp .env.example .env
 
-# 2. 使用 Docker Compose 啟動
+# 2. 啟動服務
 docker compose up -d
 
 # 3. 開啟 API 文件
-open http://localhost:8000/docs
+http://localhost:8000/docs
 ```
 
-## 快速開始（開發模式）
+## 核心功能
 
-### 選項一：原生開發（Linux/Mac/WSL）
+- **批次列印**：JSON 資料批次轉換為 PDF 標籤
+- **非同步處理**：任務佇列與背景執行
+- **即時狀態**：SSE (Server-Sent Events) 即時推送
+- **自動分批**：大量標籤自動分批處理與合併
+- **模板管理**：自動探索與解析 `.glabels` 模板
 
-**系統需求：**
-- Python 3.12
-- Linux 或 WSL2（gLabels 僅支援 Linux）
+## 安裝方式
 
-```bash
-# 1. 複製環境設定模板
-cp .env.example .env
-
-# 2. 設定虛擬環境
-python -m venv venv
-source venv/bin/activate
-
-# 3. 安裝依賴套件
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# 4. 安裝 gLabels
-sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
-
-# 5. 使用 uvicorn 執行（啟用自動重載）
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 或在 VS Code 中按 F5 進行除錯
-```
-
-### 選項二：Docker 開發（Windows/跨平台）
+### Docker（推薦）
 
 ```bash
-# 1. 複製環境設定模板
-cp .env.example .env
-
-# 2. 使用 Docker Compose 啟動（啟用熱重載）
+# 開發環境（啟用熱重載）
 docker compose up -d
 
-# 3. 查看日誌
-docker compose logs -f
-
-# 4. 開啟 API 文件
-open http://localhost:8000/docs
-```
-
-開發環境設定包含：
-- 程式碼變更時自動重載（透過 `--reload` 旗標或掛載 ./app 目錄）
-- 除錯級別的日誌記錄
-- 保留 CSV 檔案以便除錯
-
----
-
-## 正式環境部署
-
-### 方法一：使用環境變數（建議）
-
-在您的部署平台（Kubernetes、AWS ECS 等）設定環境變數：
-
-```bash
-# 建置映像檔
-docker build -t glabels-batch-service:latest .
-
-# 使用環境變數執行
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  -e ENVIRONMENT=production \
-  -e RELOAD=false \
-  -e LOG_LEVEL=WARNING \
-  -e KEEP_CSV=false \
-  -e MAX_PARALLEL=4 \
-  -v /data/output:/app/output \
-  -v /data/templates:/app/templates \
-  -v /data/logs:/app/logs \
-  --restart always \
-  glabels-batch-service:latest
-```
-
-### 方法二：使用 compose.prod.yml
-
-```bash
-# 1. 在系統或 CI/CD 中設定環境變數
-export ENVIRONMENT=production
-export LOG_LEVEL=WARNING
-export MAX_PARALLEL=4
-# ... 其他設定
-
-# 2. 啟動正式環境服務
+# 正式環境
 docker compose -f compose.prod.yml up -d
-
-# 3. 檢查狀態
-docker compose -f compose.prod.yml ps
-docker compose -f compose.prod.yml logs -f
 ```
 
-### 正式環境檢查清單
+### 原生安裝（Linux/WSL）
 
-部署到正式環境前，請確認：
+```bash
+# 安裝依賴
+sudo apt-get install glabels glabels-data
+pip install -r requirements.txt
 
-- [ ] 已設定 `ENVIRONMENT=production`
-- [ ] `RELOAD=false`（關鍵設定 - 若為 true 將無法通過驗證）
-- [ ] `LOG_LEVEL` 設為 WARNING 或 ERROR
-- [ ] `KEEP_CSV=false`（節省磁碟空間）
-- [ ] 根據可用 CPU 核心數設定 `MAX_PARALLEL`
-- [ ] 正確設定 `/app/output`、`/app/templates`、`/app/logs` 的磁碟區掛載
-- [ ] 為 `/health` 端點設定監控
-- [ ] 設定資源限制（CPU/記憶體）
-- [ ] 使用密鑰管理工具管理敏感設定
-- [ ] **絕不將 .env.production 提交至 git** - 請使用系統環境變數
+# 執行
+uvicorn app.main:app --reload
+```
+
+> **Windows 使用者**：gLabels 僅支援 Linux，請使用 Docker 或 WSL2
 
 ---
-
-## 設定檔載入優先順序
-
-設定檔按以下順序載入（後者覆蓋前者）：
-
-1. **預設值** 定義於 `app/config.py`
-2. **`.env` 檔案**（若存在）- 用於開發環境
-3. **系統環境變數** - 建議用於正式環境
-
-範例：
-```bash
-# .env 檔案中設定：LOG_LEVEL=DEBUG
-# 系統環境變數：export LOG_LEVEL=WARNING
-# 結果：LOG_LEVEL=WARNING（系統環境變數優先）
-```
-
----
-
-## 環境設定檔說明
-
-| 檔案 | 用途 | 是否提交至 Git？ |
-|------|------|-----------------|
-| `.env.example` | 開發環境模板 | ✅ 是 |
-| `.env.production.example` | 正式環境模板 | ✅ 是 |
-| `.env` | 開發環境設定 | ❌ 否 |
-| `.env.production` | 正式環境設定 | ❌ 否 |
-| `.env.local` | 本地覆寫設定 | ❌ 否 |
-
----
-
-## 安全性注意事項
-
-**重要：** 絕不將包含實際值的環境設定檔（`.env`、`.env.production`）提交至版本控制系統。
-
-- `.env.example` 和 `.env.production.example` 是安全的範本檔案
-- `compose.prod.yml` 使用 `${VAR:-default}` 語法從系統環境載入變數
-- 正式環境建議使用系統環境變數而非 `.env` 檔案
-- 應用程式會驗證在正式環境模式下 `RELOAD=false`
-
----
-
-## 架構說明
-
-```text
-客戶端請求 → FastAPI → 工作管理器 → 模板服務 → gLabels引擎 → PDF輸出
-                      ↓           ↓          ↓
-                  非同步佇列   模板探索    CLI封裝器
-```
-
-## 專案結構
-
-```text
-app/
-├── api/           # API 路由與端點
-├── core/          # 日誌與版本資訊
-├── parsers/       # 模板格式解析器
-├── services/      # 業務邏輯 (JobManager, TemplateService)
-├── utils/         # GlabelsEngine CLI 封裝器
-├── config.py      # 環境設定
-├── schema.py      # Pydantic schema 模型
-└── main.py        # FastAPI 應用程式入口
-```
-
-## 系統需求
-
-- **Linux 平台** (gLabels 僅支援 Linux)
-- **Windows 使用者**: 請使用 WSL2 或 Docker Desktop
-- Docker 與 Docker Compose
-- gLabels 軟體 (Docker 容器中自動安裝)
-
-## Docker 部署（其他方法）
-
-**注意：** 快速開始請參閱上方章節。本節提供其他 Docker 部署方法。
-
-### 方案一：Docker Compose (建議)
-
-```bash
-# 1. 複製環境設定模板
-cp .env.example .env
-
-# 2. 建置並啟動
-docker compose up -d
-
-# 3. 檢查狀態
-docker compose ps
-docker compose logs -f
-
-# 4. 存取 API 文件
-open http://localhost:8000/docs
-```
-
-### 方案二：純 Dockerfile
-
-#### 方法 A：使用 .env 檔案
-
-```bash
-# 1. 複製環境範本並建置映像檔
-cp .env.example .env
-docker build -t glabels-batch-service .
-
-# 2. 建立目錄 (請依需求調整路徑)
-mkdir -p /your/path/output /your/path/templates
-# mkdir -p /your/path/temp  # 只有當 .env 中 KEEP_CSV=true 時才需要
-
-# 3. 使用 .env 檔案執行容器
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  --env-file .env \
-  -v /your/path/output:/app/output \
-  -v /your/path/templates:/app/templates \
-  --restart unless-stopped \
-  glabels-batch-service
-  # 只有當 KEEP_CSV=true 時才需要掛載 temp 目錄：
-  # -v /your/path/temp:/app/temp \
-```
-
-#### 方法 B：使用環境變數參數
-
-```bash
-# 1. 建置映像檔
-docker build -t glabels-batch-service .
-
-# 2. 建立目錄 (請依需求調整路徑)
-mkdir -p /your/path/output /your/path/templates
-# mkdir -p /your/path/temp  # 只有當 KEEP_CSV=true 時才需要
-
-# 3. 使用環境變數參數執行容器
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  -e HOST=0.0.0.0 \
-  -e PORT=8000 \
-  -e LOG_LEVEL=INFO \
-  -e KEEP_CSV=false \
-  -e MAX_PARALLEL=0 \
-  -e GLABELS_TIMEOUT=600 \
-  -e RETENTION_HOURS=24 \
-  -v /your/path/output:/app/output \
-  -v /your/path/templates:/app/templates \
-  --restart unless-stopped \
-  glabels-batch-service
-  # 如果要保留 CSV 檔案，請設定 KEEP_CSV=true 並掛載 temp 目錄：
-  # -e KEEP_CSV=true \
-  # -v /your/path/temp:/app/temp \
-
-# 4. 檢查日誌
-docker logs -f glabels-batch-service
-
-# 5. 存取 API 文件
-open http://localhost:8000/docs
-```
-
-**停止與清理：**
-
-```bash
-docker stop glabels-batch-service
-docker rm glabels-batch-service
-```
-
-## 環境變數設定
-
-將 `.env.example` 複製為 `.env` 並依需求調整：
-
-```bash
-HOST=0.0.0.0                # 伺服器位址
-PORT=8000                   # 伺服器埠號
-RELOAD=false                # 自動重載 (開發用)
-KEEP_CSV=false              # 保留中繼 CSV 檔案
-MAX_PARALLEL=0              # 最大平行工作數 (0=自動)
-MAX_LABELS_PER_BATCH=300    # 每批最大標籤數量
-MAX_LABELS_PER_JOB=2000     # 單次請求最大標籤數量
-GLABELS_TIMEOUT=600         # 單一任務逾時秒數
-RETENTION_HOURS=24          # 任務保存時數
-LOG_LEVEL=INFO              # 日誌等級
-MAX_REQUEST_BYTES=5000000   # 最大請求 body bytes
-MAX_FIELDS_PER_LABEL=50     # 單筆最大欄位數量
-MAX_FIELD_LENGTH=2048       # 單一欄位最大字元長度
-CORS_ALLOW_ORIGINS=
-```
-
-## 本地開發
-
-詳細的本地開發設定說明請參閱上方的 **[快速開始（開發模式）](#快速開始開發模式)** 章節。
 
 ## API 使用範例
 
@@ -331,14 +71,14 @@ curl -X POST http://localhost:8000/labels/print \
   -d '{
     "template_name": "demo.glabels",
     "data": [
-      {"CODE": "A001", "ITEM": "產品 A"},
-      {"CODE": "A002", "ITEM": "產品 B"}
+      {"CODE": "A001", "ITEM": "產品A"},
+      {"CODE": "A002", "ITEM": "產品B"}
     ],
     "copies": 1
   }'
 ```
 
-回應：
+**回應：**
 
 ```json
 {"job_id": "abc123..."}
@@ -347,21 +87,33 @@ curl -X POST http://localhost:8000/labels/print \
 ### 查詢任務狀態
 
 ```bash
-curl http://localhost:8000/labels/jobs/abc123...
+curl http://localhost:8000/labels/jobs/{job_id}
 ```
 
-### 即時狀態推送 (SSE)
+**回應範例：**
+
+```json
+{
+  "job_id": "abc123...",
+  "status": "done",
+  "template_name": "demo.glabels",
+  "created_at": "2026-02-09T10:30:00",
+  "pdf_filename": "demo_20260209_103000.pdf"
+}
+```
+
+### 即時狀態推送（SSE）
 
 使用 Server-Sent Events 獲取即時狀態更新：
 
 ```bash
-curl -N http://localhost:8000/labels/jobs/abc123.../stream
+curl -N http://localhost:8000/labels/jobs/{job_id}/stream
 ```
 
-或在 JavaScript 中使用：
+**JavaScript 範例：**
 
 ```javascript
-const es = new EventSource('/labels/jobs/abc123.../stream');
+const es = new EventSource('/labels/jobs/{job_id}/stream');
 es.addEventListener('status', (e) => {
     const job = JSON.parse(e.data);
     console.log(job.status);  // pending → running → done
@@ -374,83 +126,279 @@ es.addEventListener('status', (e) => {
 ### 下載 PDF
 
 ```bash
-curl -O http://localhost:8000/labels/jobs/abc123.../download
+# 下載檔案
+curl -O http://localhost:8000/labels/jobs/{job_id}/download
+
+# 瀏覽器預覽
+curl http://localhost:8000/labels/jobs/{job_id}/download?preview=true
 ```
 
-瀏覽器預覽：
-
-```bash
-curl http://localhost:8000/labels/jobs/abc123.../download?preview=true
-```
-
-### 列出模板
+### 列出可用模板
 
 ```bash
 curl http://localhost:8000/labels/templates
 ```
 
-## 模板與資料格式
+**回應範例：**
 
-- 將 `.glabels` 模板檔案放置於 `templates/` 目錄
-- JSON 資料欄位必須與模板變數對應
-- data 陣列不得為空，且需符合設定的上限
-- 產生的 PDF 儲存至 `output/` 目錄
-- 暫存 CSV 檔案位於 `temp/` (可設定保留與否)
-
-## 測試
-
-```bash
-# 執行所有測試
-pytest tests/
-
-# 詳細輸出
-pytest tests/ -v
-
-# 生成覆蓋率報告
-pytest tests/ --cov=app --cov-report=html
-
-# 執行特定測試
-pytest tests/test_glabels_engine.py
+```json
+{
+  "templates": [
+    {
+      "name": "demo.glabels",
+      "fields": ["CODE", "ITEM"],
+      "format": "Avery 5160"
+    }
+  ]
+}
 ```
 
-## 疑難排解
+---
 
-**常見問題：**
+## 環境變數設定
 
-- `404 Job not found` - 任務已過期或不存在
-- `glabels-3-batch not found` - gLabels 未安裝 (Docker 中不應發生)
-- 權限錯誤 - 檢查目錄掛載權限
-- 找不到模板 - 確認模板存在於 `templates/` 目錄
-- **Windows 相容性** - 請使用 Docker Desktop 或 WSL2 (gLabels 需要 Linux)
+複製 `.env.example` 為 `.env` 並依需求調整：
+
+| 變數 | 說明 | 預設值 |
+|------|------|--------|
+| `ENVIRONMENT` | 執行環境 (development/production) | `production` |
+| `HOST` / `PORT` | 伺服器位址與埠號 | `0.0.0.0` / `8000` |
+| `RELOAD` | 程式碼變更時自動重載（僅開發） | `false` |
+| `MAX_PARALLEL` | 平行工作數 (0=自動 CPU-1) | `0` |
+| `MAX_LABELS_PER_BATCH` | 單批最大標籤數（超過自動分批） | `300` |
+| `MAX_LABELS_PER_JOB` | 單次請求最大標籤數 | `2000` |
+| `GLABELS_TIMEOUT` | 單批次處理逾時秒數 | `600` |
+| `RETENTION_HOURS` | 任務保存時數 | `24` |
+| `LOG_LEVEL` | 日誌等級 (DEBUG/INFO/WARNING/ERROR) | `INFO` |
+| `LOG_DIR` | 日誌檔案目錄 | `logs` |
+| `KEEP_CSV` | 保留中繼 CSV 檔案（除錯用） | `false` |
+| `MAX_REQUEST_BYTES` | 請求 body 大小上限 | `5000000` |
+| `MAX_FIELDS_PER_LABEL` | 單筆資料最大欄位數 | `50` |
+| `MAX_FIELD_LENGTH` | 單一欄位最大長度 | `2048` |
+| `CORS_ALLOW_ORIGINS` | 允許的來源清單（逗號分隔，留空關閉） | `` |
+
+### 設定檔優先順序
+
+設定按以下順序載入（後者覆蓋前者）：
+
+1. `app/config.py` 預設值
+2. `.env` 檔案（開發環境）
+3. 系統環境變數（正式環境建議）
+
+### 環境檔案說明
+
+| 檔案 | 用途 | 是否提交至 Git？ |
+|------|------|-----------------|
+| `.env.example` | 開發環境模板 | 是 |
+| `.env.production.example` | 正式環境模板 | 是 |
+| `.env` | 開發環境設定 | 否 |
+| `.env.production` | 正式環境設定 | 否 |
+
+> **安全提醒**：絕不將包含實際值的 `.env` 或 `.env.production` 提交至版本控制。
+
+---
+
+## 正式環境部署
+
+### 使用 Docker Compose（推薦）
+
+```bash
+# 1. 設定環境變數
+export ENVIRONMENT=production
+export LOG_LEVEL=WARNING
+export RELOAD=false
+export MAX_PARALLEL=4
+
+# 2. 啟動服務
+docker compose -f compose.prod.yml up -d
+
+# 3. 檢查狀態
+docker compose -f compose.prod.yml ps
+docker compose -f compose.prod.yml logs -f
+```
+
+### 使用 Docker Run
+
+```bash
+docker build -t glabels-batch-service:latest .
+
+docker run -d \
+  --name glabels-batch-service \
+  -p 8000:8000 \
+  -e ENVIRONMENT=production \
+  -e RELOAD=false \
+  -e LOG_LEVEL=WARNING \
+  -v /data/output:/app/output \
+  -v /data/templates:/app/templates \
+  -v /data/logs:/app/logs \
+  --restart always \
+  glabels-batch-service:latest
+```
+
+### 部署檢查清單
+
+- [ ] `ENVIRONMENT=production`
+- [ ] `RELOAD=false`（必須，否則啟動會失敗）
+- [ ] `LOG_LEVEL=WARNING` 或 `ERROR`
+- [ ] `KEEP_CSV=false`（節省磁碟空間）
+- [ ] 設定資源限制（CPU/記憶體）
+- [ ] 設定磁碟區掛載（`/app/output`、`/app/templates`、`/app/logs`）
+- [ ] 設定健康檢查監控（`/health` 端點）
+- [ ] 備份策略（定期備份 `templates/` 和 `output/`）
+- [ ] 不要將 `.env.production` 提交至 git
+
+---
+
+## 常見問題
+
+**Q: Windows 可以用嗎？**  
+A: gLabels 僅支援 Linux，請使用 Docker Desktop 或 WSL2
+
+**Q: 任務一直顯示 pending？**  
+A: 檢查 `docker compose logs -f` 確認 worker 是否正常運行，或檢查 `MAX_PARALLEL` 設定
+
+**Q: 找不到模板？**  
+A: 確認 `.glabels` 檔案在 `templates/` 目錄且副檔名正確，使用 `/labels/templates` API 列出可用模板
+
+**Q: PDF 下載返回 404？**  
+A: 任務可能已過期（預設 24 小時後清除），或任務尚未完成（檢查狀態是否為 `done`）
+
+**Q: 返回 409 Conflict？**  
+A: 任務仍在執行中，請等待完成後再下載
+
+**Q: 如何調整平行處理數？**  
+A: 設定 `MAX_PARALLEL`，`0` 為自動（CPU-1），或明確指定如 `4`；生產環境建議根據 CPU 核心數調整
+
+**Q: 如何處理大量標籤？**  
+A: 系統會自動分批處理（預設 300 張/批），設定調整 `MAX_LABELS_PER_BATCH`；最終 PDF 會自動合併
+
+**Q: 逾時錯誤？**  
+A: `GLABELS_TIMEOUT` 是**單批次**的逾時時間（預設 600 秒）。如處理 1000 張標籤分成 4 批，總時間可達 2400 秒。增加此值可處理更複雜的單批標籤
 
 **除錯方法：**
 
 ```bash
-# 檢查容器日誌
+# 查看容器日誌
 docker compose logs -f
 
 # 檢查容器狀態
 docker compose ps
 
-# 進入容器 shell
+# 進入容器檢查
 docker compose exec glabels-batch-service sh
+
+# 檢查健康狀態
+curl http://localhost:8000/health
+
+# 檢查執行資訊
+curl http://localhost:8000/info
 ```
 
-## 部署建議
+---
 
-- 定期備份 `templates/` 和 `output/` 目錄
-- 監控容器資源使用狀況
-- 日誌自動輪轉 (5MB/檔案, 保留10個檔案)，可在 `app/core/logger.py` 調整
+## 專案架構
 
-## 設定說明
+### 執行流程
 
-- `MAX_PARALLEL=0` 自動設定為 CPU 核心數-1，可根據系統效能調整
-- `MAX_LABELS_PER_BATCH=300` 控制每批次處理的標籤數量，超過時會自動分批處理再合併為單一 PDF
-- `MAX_LABELS_PER_JOB=2000` 控制單次請求最多可處理的標籤數量
-- `MAX_REQUEST_BYTES=5000000` 限制請求 body 大小以避免記憶體壓力
-- `MAX_FIELDS_PER_LABEL=50` 限制單筆資料欄位數量
-- `MAX_FIELD_LENGTH=2048` 限制單一欄位字串長度
-- `CORS_ALLOW_ORIGINS` 允許的來源清單（留空即關閉 CORS）
-- `GLABELS_TIMEOUT=600` 如果處理大量資料時逾時，可適當提高
-- `KEEP_CSV=true` 開啟可保留中繼 CSV 檔案供偵錯檢查
-- `RETENTION_HOURS=24` 控制任務在記憶體中保存的時間
+```text
+客戶端請求 → FastAPI → JobManager → LabelPrintService → GlabelsEngine → PDF 輸出
+                          ↓              ↓                  ↓
+                      佇列管理        JSON→CSV          CLI 包裝器
+                      Worker Pool     批次分割          subprocess
+                                      PDF 合併
+```
+
+### 專案結構
+
+```text
+app/
+├── api/
+│   └── print_jobs.py      # API 路由與端點
+├── core/
+│   ├── logger.py          # 日誌設定
+│   └── version.py         # 版本資訊
+├── parsers/
+│   ├── base_parser.py     # 解析器基底類別
+│   └── csv_parser.py      # CSV 格式解析器
+├── services/
+│   ├── job_manager.py     # 任務佇列與 worker 管理
+│   ├── label_print.py     # JSON→CSV、批次分割、PDF 合併
+│   └── template_service.py # 模板探索與解析
+├── utils/
+│   └── glabels_engine.py  # glabels-3-batch CLI 包裝器
+├── config.py              # 環境設定（pydantic-settings）
+├── schema.py              # Pydantic 資料模型
+└── main.py                # FastAPI 應用程式入口
+```
+
+### 主要元件說明
+
+- **JobManager**：管理任務佇列、worker pool、任務狀態追蹤和清理
+- **LabelPrintService**：處理 JSON 轉 CSV、批次分割、PDF 合併邏輯
+- **GlabelsEngine**：非同步包裝 `glabels-3-batch` CLI，處理逾時與錯誤
+- **TemplateService**：自動探索 `templates/` 目錄並解析 `.glabels` 檔案結構
+
+---
+
+## 模板與資料格式
+
+### 模板檔案
+
+- 將 `.glabels` 模板檔案放置於 `templates/` 目錄
+- 系統自動探索並解析模板中的欄位定義
+- 使用 `/labels/templates` API 查看可用模板與欄位清單
+
+### 資料格式要求
+
+- JSON 資料欄位名稱必須與模板變數完全對應（區分大小寫）
+- `data` 陣列不得為空
+- 單次請求最多 `MAX_LABELS_PER_JOB` 筆（預設 2000）
+- 單筆資料最多 `MAX_FIELDS_PER_LABEL` 個欄位（預設 50）
+- 單一欄位值長度最多 `MAX_FIELD_LENGTH` 字元（預設 2048）
+
+### 檔案輸出
+
+- 產生的 PDF 儲存至 `output/` 目錄
+- 檔名格式：`{template_name}_{timestamp}.pdf`
+- 暫存 CSV 檔案位於 `temp/`（`KEEP_CSV=true` 時保留）
+- 任務完成後保留 `RETENTION_HOURS` 小時（預設 24）
+
+---
+
+## 開發與測試
+
+### 執行測試
+
+```bash
+# 執行所有測試
+pytest tests/ -v
+
+# 生成覆蓋率報告
+pytest tests/ --cov=app --cov-report=html
+
+# 檢視覆蓋率
+open htmlcov/index.html
+
+# 執行特定測試
+pytest tests/test_glabels_engine.py -v
+```
+
+### 本地開發
+
+```bash
+# 建立虛擬環境
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 安裝開發依賴
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# 安裝 gLabels（Linux/WSL）
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
+
+# 執行服務（啟用熱重載）
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 或按 F5 在 VS Code 中除錯
+```
