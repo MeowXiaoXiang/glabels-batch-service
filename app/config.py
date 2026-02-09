@@ -3,6 +3,7 @@
 # Using pydantic-settings to automatically map env vars to Python attributes
 
 from pathlib import Path
+from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
     # -------------------------
     # Server configuration
     # -------------------------
-    HOST: str = "0.0.0.0"
+    HOST: str = "0.0.0.0"  # nosec: B104
     # IP address to bind (0.0.0.0 = all interfaces)
 
     PORT: int = 8000
@@ -84,7 +85,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: Any) -> None:
         """Production safety validation."""
         if self.ENVIRONMENT == "production" and self.RELOAD:
             raise ValueError(

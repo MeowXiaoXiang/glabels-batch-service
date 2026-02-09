@@ -116,7 +116,7 @@ class TestTemplateService:
             service.get_template_info("../secrets.glabels")
 
     @patch("gzip.open")
-    @patch("xml.etree.ElementTree.fromstring")
+    @patch("defusedxml.ElementTree.fromstring")
     def test_detect_format_csv(self, mock_fromstring, mock_gzip_open, service):
         """Should detect CSV format for comma-based merge types."""
         # Mock XML content
@@ -135,7 +135,7 @@ class TestTemplateService:
         assert result == "csv"
 
     @patch("gzip.open")
-    @patch("xml.etree.ElementTree.fromstring")
+    @patch("defusedxml.ElementTree.fromstring")
     def test_detect_format_unsupported(self, mock_fromstring, mock_gzip_open, service):
         """Should raise ValueError for unsupported merge type."""
         # Mock XML content

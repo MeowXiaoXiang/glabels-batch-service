@@ -8,12 +8,14 @@
 import sys
 from pathlib import Path
 
+from typing import Any
+
 from loguru import logger
 
 from app.config import settings
 
 
-def setup_logger(level: str = None):
+def setup_logger(level: str | None = None) -> Any:
     """
     Initialize global logger.
     :param level: log level (DEBUG / INFO / WARNING / ERROR)

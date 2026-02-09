@@ -18,7 +18,7 @@ class BaseParser(ABC):
     the parse_template_info method.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Prevent direct instantiation of abstract base class.
         """

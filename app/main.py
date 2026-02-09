@@ -7,8 +7,10 @@
 # - Lifespan context manages JobManager
 # - Global config provided by app/config.py (pydantic-settings)
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +26,7 @@ from app.services.job_manager import JobManager
 
 # Lifespan: startup / shutdown management
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI lifecycle: manage JobManager on startup/shutdown."""
     app.state.job_manager = JobManager()
     app.state.job_manager.start_workers()
@@ -74,20 +76,20 @@ if origins:
 
 # Global Exception Handler
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception(f"Unhandled error on {request.url.path}: {exc}")
     return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
 # Health Check (lightweight)
 @app.get("/health", tags=["system"], summary="Health check")
-async def health_check():
+async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
 # API root meta info
 @app.get("/", tags=["system"], summary="API root information")
-async def api_root():
+async def api_root() -> dict[str, str]:
     return {
         "service": SERVICE_NAME,
         "version": VERSION,
@@ -99,7 +101,7 @@ async def api_root():
 
 # Service Info (uptime, workers, queue size, jobs_total)
 @app.get("/info", tags=["system"], summary="Service information")
-async def service_info(request: Request):
+async def service_info(request: Request) -> dict[str, Any]:
     """
     Show service runtime information:
     - service name & version

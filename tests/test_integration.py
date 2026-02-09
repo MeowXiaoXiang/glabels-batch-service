@@ -10,7 +10,6 @@ Covers essential end-to-end workflows:
 """
 
 import gzip
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 

@@ -7,8 +7,8 @@
 # - Template discovery and information
 
 import asyncio
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import List
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -80,7 +80,7 @@ async def submit_labels(
     request: Request,
     req: LabelRequest = Body(
         ...,
-        examples={
+        openapi_examples={
             "basic": {
                 "summary": "Basic example",
                 "description": "Use demo.glabels template with 2 records, each printed 2 times.",
@@ -95,7 +95,7 @@ async def submit_labels(
             }
         },
     ),
-):
+) -> JobSubmitResponse:
     """
     Submit a new label print job. The server will enqueue the task and process it asynchronously.
 
@@ -206,7 +206,7 @@ async def submit_labels(
         404: {"description": "Job not found"},
     },
 )
-async def get_job_status(job_id: str, request: Request):
+async def get_job_status(job_id: str, request: Request) -> JobStatusResponse:
     """
     Query the status and related information of a print job by job_id.
 
@@ -251,7 +251,7 @@ async def get_job_status(job_id: str, request: Request):
         404: {"description": "Job not found"},
     },
 )
-async def stream_job_status(job_id: str, request: Request):
+async def stream_job_status(job_id: str, request: Request) -> StreamingResponse:
     """
     Stream real-time job status updates using Server-Sent Events (SSE).
 
@@ -310,7 +310,7 @@ async def stream_job_status(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[str, None]:
         last_status = None
         while True:
             # Check if client disconnected
@@ -320,7 +320,7 @@ async def stream_job_status(job_id: str, request: Request):
 
             job = job_manager.get_job(job_id)
             if not job:
-                yield f"event: error\ndata: Job not found or expired\n\n"
+                yield "event: error\ndata: Job not found or expired\n\n"
                 break
 
             current_status = job["status"]
@@ -359,7 +359,7 @@ async def stream_job_status(job_id: str, request: Request):
         410: {"description": "File has been deleted"},
     },
 )
-async def download_job_pdf(job_id: str, request: Request, preview: bool = False):
+async def download_job_pdf(job_id: str, request: Request, preview: bool = False) -> FileResponse:
     """
     Download the generated PDF file when job status is `done`.
 
@@ -415,7 +415,7 @@ async def download_job_pdf(job_id: str, request: Request, preview: bool = False)
 # List Recent Jobs
 @router.get(
     "/jobs",
-    response_model=List[JobStatusResponse],
+    response_model=list[JobStatusResponse],
     summary="List recent jobs",
     responses={
         200: {
@@ -449,7 +449,7 @@ async def download_job_pdf(job_id: str, request: Request, preview: bool = False)
         }
     },
 )
-async def list_jobs(request: Request, limit: int = 10):
+async def list_jobs(request: Request, limit: int = 10) -> list[JobStatusResponse]:
     """
     List the most recent N jobs, ordered by creation time (newest first).
 
@@ -491,7 +491,7 @@ async def list_jobs(request: Request, limit: int = 10):
 # List Available Templates
 @router.get(
     "/templates",
-    response_model=List[TemplateInfo],
+    response_model=list[TemplateInfo],
     summary="List available templates",
     responses={
         200: {
@@ -522,7 +522,7 @@ async def list_jobs(request: Request, limit: int = 10):
         500: {"description": "Server error while reading templates"},
     },
 )
-async def list_templates():
+async def list_templates() -> list[TemplateInfo]:
     """
     Discover all available gLabels template files with detailed field information.
 
@@ -606,7 +606,7 @@ async def list_templates():
         500: {"description": "Server error while reading template"},
     },
 )
-async def get_template_info(template_name: str):
+async def get_template_info(template_name: str) -> TemplateInfo:
     """
     Get detailed information for a specific gLabels template file.
 

@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List
 
+import defusedxml.ElementTree as SafeET
 from loguru import logger
 
 from app.schema import TemplateInfo
@@ -41,7 +42,7 @@ class CSVParser(BaseParser):
 
         try:
             xml_content = self._decompress_glabels_file(template_path)
-            root = ET.fromstring(xml_content)
+            root = SafeET.fromstring(xml_content)
 
             # Find Merge element (handle namespaces)
             merge_element = root.find("Merge")

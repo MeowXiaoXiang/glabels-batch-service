@@ -14,7 +14,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Iterable, Optional
 
 from loguru import logger
 from pypdf import PdfWriter
@@ -24,13 +24,13 @@ from app.utils.glabels_engine import GlabelsEngine, GlabelsRunError
 
 
 # Utility functions
-def _collect_fieldnames(rows: List[Dict], exclude: Iterable[str] = ()) -> List[str]:
+def _collect_fieldnames(rows: list[dict[str, Any]], exclude: Iterable[str] = ()) -> list[str]:
     """
     Collect field names from JSON rows in the order of appearance.
     Optionally exclude specific keys.
     """
     seen = set()
-    order: List[str] = []
+    order: list[str] = []
     for row in rows:
         for k in row.keys():
             if k in exclude:
@@ -49,7 +49,7 @@ def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", s or "")
 
 
-def _chunk_list(data: List, chunk_size: int) -> List[List]:
+def _chunk_list(data: list[Any], chunk_size: int) -> list[list[Any]]:
     """
     Split a list into multiple chunks.
     """
@@ -58,7 +58,7 @@ def _chunk_list(data: List, chunk_size: int) -> List[List]:
     return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 
-def _merge_pdfs(pdf_paths: List[Path], output_path: Path) -> None:
+def _merge_pdfs(pdf_paths: list[Path], output_path: Path) -> None:
     """
     Merge multiple PDF files using pypdf.
     """
@@ -104,10 +104,10 @@ class LabelPrintService:
     # --------------------------------------------------------
     def _json_to_csv(
         self,
-        data: List[Dict],
+        data: list[dict[str, Any]],
         csv_path: Path,
-        field_order: Optional[List[str]] = None,
-    ) -> List[str]:
+        field_order: Optional[list[str]] = None,
+    ) -> list[str]:
         """
         Write JSON rows into a CSV file.
         """
@@ -151,11 +151,11 @@ class LabelPrintService:
         job_id: str,
         batch_index: int,
         template_path: Path,
-        data: List[Dict],
+        data: list[dict[str, Any]],
         copies: int,
         temp_dir: Path,
         output_dir: Path,
-        field_order: Optional[List[str]] = None,
+        field_order: Optional[list[str]] = None,
     ) -> Path:
         """
         Generate a single batch PDF (internal method).
@@ -198,10 +198,10 @@ class LabelPrintService:
         *,
         job_id: str,
         template_name: str,
-        data: List[Dict],
+        data: list[dict[str, Any]],
         copies: int = 1,
         filename: str,
-        field_order: Optional[List[str]] = None,
+        field_order: Optional[list[str]] = None,
     ) -> Path:
         """
         Generate PDF based on template and JSON data.
@@ -302,7 +302,7 @@ class LabelPrintService:
             f"(total={sum(batch_sizes)}, batches={num_batches})"
         )
 
-        batch_pdfs: List[Path] = []
+        batch_pdfs: list[Path] = []
         batch_pdf_paths = [
             output_dir / f"{job_id}_batch{i}.pdf" for i in range(num_batches)
         ]

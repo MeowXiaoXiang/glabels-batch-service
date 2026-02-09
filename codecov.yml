@@ -1,0 +1,34 @@
+coverage:
+  precision: 2
+  round: down
+  range: "70, 100"
+
+ignore:
+  - tests
+  - "**/__pycache__"
+  - "**/site-packages"
+
+codecov:
+  require_ci_to_pass: true
+
+comment:
+  layout: reach, diff, flags, tree
+  behavior: default
+  require_changes: false
+
+status:
+  project:
+    default:
+      target: 80%
+      threshold: 5%
+      branches:
+        - main
+        - develop
+  patch:
+    default:
+      target: 75%
+      threshold: 5%
+
+flags:
+  unit:
+    carryforward: true

@@ -35,7 +35,7 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Type check with mypy
         run: |
-          mypy app/
+          mypy app/ --strict --no-implicit-reexport
 
   security:
     runs-on: ubuntu-latest

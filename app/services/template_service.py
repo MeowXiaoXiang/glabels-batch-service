@@ -161,13 +161,14 @@ class TemplateService:
             ValueError: If template format is not supported
         """
         import gzip
-        import xml.etree.ElementTree as ET
+
+        import defusedxml.ElementTree as SafeET
 
         try:
             # Decompress and parse gLabels file
             with gzip.open(template_path, "rt", encoding="utf-8") as f:
                 xml_content = f.read()
-            root = ET.fromstring(xml_content)
+            root = SafeET.fromstring(xml_content)
 
             # Find Merge element (handle namespaces)
             merge_element = root.find("Merge")

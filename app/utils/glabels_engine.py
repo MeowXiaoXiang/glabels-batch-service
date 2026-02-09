@@ -192,7 +192,7 @@ class GlabelsEngine:
                 proc, timeout=effective_timeout
             )
 
-        rc = int(proc.returncode)
+        rc = proc.returncode if proc.returncode is not None else -1
         stdout = stdout_b.decode("utf-8", errors="ignore") if stdout_b else ""
         stderr = stderr_b.decode("utf-8", errors="ignore") if stderr_b else ""
 

@@ -9,7 +9,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -19,15 +19,15 @@ from app.services.label_print import LabelPrintService
 
 
 class JobManager:
-    def __init__(self):
+    def __init__(self) -> None:
         # All job states (in-memory)
-        self.jobs: Dict[str, Dict[str, Any]] = {}
+        self.jobs: dict[str, dict[str, Any]] = {}
         # Async queue for job scheduling
-        self.queue: asyncio.Queue = asyncio.Queue()
+        self.queue: asyncio.Queue[tuple[str, LabelRequest, str]] = asyncio.Queue()
         # Worker task list
-        self.workers: List[asyncio.Task] = []
+        self.workers: list[asyncio.Task[None]] = []
         # Scheduled cleanup task
-        self.cleanup_task: Optional[asyncio.Task] = None
+        self.cleanup_task: Optional[asyncio.Task[None]] = None
 
         # Counter: total submitted jobs (lifetime, reset on restart)
         self.jobs_total: int = 0
@@ -53,7 +53,7 @@ class JobManager:
     # --------------------------------------------------------
     def _make_job(
         self, req: LabelRequest, job_id: str, filename: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create initial job record (pending status).
         """
@@ -72,7 +72,7 @@ class JobManager:
     # --------------------------------------------------------
     # Worker loop
     # --------------------------------------------------------
-    async def _worker(self, wid: int):
+    async def _worker(self, wid: int) -> None:
         """
         Worker loop:
         - Dequeue job
@@ -118,7 +118,7 @@ class JobManager:
     # --------------------------------------------------------
     # Cleanup expired jobs and PDFs
     # --------------------------------------------------------
-    def _cleanup_jobs(self):
+    def _cleanup_jobs(self) -> None:
         """
         Cleanup expired job records and scan output/ to delete old PDFs.
         Uses file modification time to handle orphaned files as well.
@@ -152,7 +152,7 @@ class JobManager:
     # --------------------------------------------------------
     # Scheduled cleanup (runs every hour)
     # --------------------------------------------------------
-    async def _cleanup_scheduler(self):
+    async def _cleanup_scheduler(self) -> None:
         """
         Background task that runs cleanup periodically.
         Ensures expired jobs and PDFs are removed even when idle.
@@ -169,7 +169,7 @@ class JobManager:
     # --------------------------------------------------------
     # Worker pool management
     # --------------------------------------------------------
-    def start_workers(self):
+    def start_workers(self) -> None:
         """
         Start all workers and scheduled cleanup task.
         """
@@ -186,7 +186,7 @@ class JobManager:
 
         logger.info(f"[JobManager] started with {self.max_parallel} workers")
 
-    async def stop_workers(self):
+    async def stop_workers(self) -> None:
         """
         Stop all workers and cleanup scheduler.
         """
@@ -227,13 +227,13 @@ class JobManager:
         )
         return job_id
 
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+    def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
         """
         Retrieve a single job by job_id.
         """
         return self.jobs.get(job_id)
 
-    def list_jobs(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def list_jobs(self, limit: int = 10) -> list[dict[str, Any]]:
         """
         List the most recent N jobs.
         """
