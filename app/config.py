@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     MAX_PARALLEL: int = 0
     #  >0   = explicit number of concurrent jobs (e.g. 4)
-    #  0    = auto (defaults to CPU count - 1)
+    #  0    = auto (cgroup-aware: reads container CPU quota, falls back to os.cpu_count())
 
     GLABELS_TIMEOUT: int = 600
     # Max timeout per job in seconds (default 600 = 10 minutes)
@@ -57,8 +57,27 @@ class Settings(BaseSettings):
     # Logging level: DEBUG / INFO / WARNING / ERROR
     # Default INFO, recommended INFO or higher in production
 
+    LOG_FORMAT: str = "text"
+    # Logging format: text | json
+    # json is useful for log aggregators (Loki/ELK)
+
     LOG_DIR: str = "logs"
     # Directory for log files. Can be relative or absolute. Default: logs
+
+    # -------------------------
+    # Observability & safety
+    # -------------------------
+    REQUEST_ID_HEADER: str = "X-Request-ID"
+    # Incoming/outgoing request ID header name
+
+    RATE_LIMIT: str = "60/minute"
+    # Rate limit for sensitive endpoints (e.g., /labels/print)
+
+    ENABLE_METRICS: bool = True
+    # Enable Prometheus metrics endpoint (/metrics)
+
+    SHUTDOWN_TIMEOUT: int = 30
+    # Max seconds to wait for queue drain on shutdown
 
     MAX_REQUEST_BYTES: int = 5_000_000
     # Maximum allowed HTTP request body size in bytes (approx 5 MB)
