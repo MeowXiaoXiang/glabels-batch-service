@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 
 from app.config import settings
+from app.core.limiter import RATE_LIMIT, limiter
 from app.schema import (JobStatusResponse, JobSubmitResponse, LabelRequest,
                         TemplateInfo)
 
@@ -76,6 +77,7 @@ router = APIRouter(prefix="/labels", tags=["Labels"])
         },
     },
 )
+@limiter.limit(RATE_LIMIT)
 async def submit_labels(
     request: Request,
     req: LabelRequest = Body(

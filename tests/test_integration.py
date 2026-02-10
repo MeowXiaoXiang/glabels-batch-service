@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Integration tests for Labels Service
+Integration tests for gLabels Batch Service
 ====================================
 
 Covers essential end-to-end workflows:
