@@ -12,9 +12,10 @@ import csv
 import os
 import re
 import time
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 from loguru import logger
 from pypdf import PdfWriter
@@ -74,7 +75,7 @@ def _merge_pdfs(pdf_paths: list[Path], output_path: Path) -> None:
 class LabelPrintService:
     def __init__(
         self,
-        max_parallel: Optional[int] = None,
+        max_parallel: int | None = None,
         default_timeout: int = 300,
         keep_csv: bool = False,
     ):
@@ -106,7 +107,7 @@ class LabelPrintService:
         self,
         data: list[dict[str, Any]],
         csv_path: Path,
-        field_order: Optional[list[str]] = None,
+        field_order: list[str] | None = None,
     ) -> list[str]:
         """
         Write JSON rows into a CSV file.
@@ -155,7 +156,7 @@ class LabelPrintService:
         copies: int,
         temp_dir: Path,
         output_dir: Path,
-        field_order: Optional[list[str]] = None,
+        field_order: list[str] | None = None,
     ) -> Path:
         """
         Generate a single batch PDF (internal method).
@@ -201,7 +202,7 @@ class LabelPrintService:
         data: list[dict[str, Any]],
         copies: int = 1,
         filename: str,
-        field_order: Optional[list[str]] = None,
+        field_order: list[str] | None = None,
     ) -> Path:
         """
         Generate PDF based on template and JSON data.

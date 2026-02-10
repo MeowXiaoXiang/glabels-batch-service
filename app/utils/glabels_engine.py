@@ -28,13 +28,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from asyncio.subprocess import Process
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence, Union
 
 from loguru import logger
 
 # Type alias: PathLike can be str or pathlib.Path
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 __all__ = [
     "GlabelsRunError",
@@ -49,7 +49,7 @@ class GlabelsRunError(RuntimeError):
     """Base error for glabels-3-batch execution, carries returncode and stderr."""
 
     def __init__(
-        self, message: str, rc: Optional[int] = None, stderr: Optional[str] = None
+        self, message: str, rc: int | None = None, stderr: str | None = None
     ):
         super().__init__(message)
         self.returncode = rc  # Subprocess return code (may be None if timeout)
@@ -59,7 +59,7 @@ class GlabelsRunError(RuntimeError):
 class GlabelsTimeoutError(GlabelsRunError):
     """Raised when glabels-3-batch execution exceeds timeout."""
 
-    def __init__(self, timeout: Optional[float]):
+    def __init__(self, timeout: float | None):
         super().__init__(
             f"glabels execution timed out after {timeout}s", rc=None, stderr="timeout"
         )
@@ -86,9 +86,9 @@ class GlabelsEngine:
     def __init__(
         self,
         *,
-        glabels_bin: Union[str, Path] = "glabels-3-batch",
+        glabels_bin: str | Path = "glabels-3-batch",
         max_parallel: int = 1,
-        default_timeout: Optional[float] = None,
+        default_timeout: float | None = None,
     ):
         self.glabels_bin = f"{glabels_bin}"  # CLI binary path
         self._semaphore = asyncio.Semaphore(
@@ -97,7 +97,7 @@ class GlabelsEngine:
         self.default_timeout = default_timeout  # Default timeout (can be overridden)
 
     async def _communicate_with_timeout(
-        self, proc: Process, timeout: Optional[float]
+        self, proc: Process, timeout: float | None
     ) -> tuple[bytes, bytes]:
         """
         Wait for subprocess to finish, with optional timeout.
@@ -105,7 +105,7 @@ class GlabelsEngine:
         """
         try:
             return await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
                 await proc.wait()
@@ -118,7 +118,7 @@ class GlabelsEngine:
         template_path: PathLike,
         csv_path: PathLike,
         extra_args: Sequence[str] = (),
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         log_truncate: int = 4096,  # Maximum log size to prevent flooding
     ) -> tuple[int, str, str]:
         """

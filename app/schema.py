@@ -6,7 +6,7 @@
 # - TemplateInfo: Template metadata schema
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -21,7 +21,7 @@ class LabelRequest(BaseModel):
     template_name: str = Field(
         ..., description="gLabels template filename (must end with .glabels)"
     )
-    data: List[Dict[str, Any]] = Field(
+    data: list[dict[str, Any]] = Field(
         ...,
         description="List of label data objects; each object represents one label, keys must match template fields",
     )
@@ -54,7 +54,7 @@ class LabelRequest(BaseModel):
 
     @field_validator("data")
     @classmethod
-    def validate_data_limits(cls, v: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def validate_data_limits(cls, v: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not v:
             raise ValueError("data must not be empty")
         if len(v) > settings.MAX_LABELS_PER_JOB:
@@ -105,14 +105,14 @@ class JobStatusResponse(BaseModel):
     filename: str = Field(
         ..., description="Expected output PDF filename (present even if job failed)"
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         None, description="Error message if job failed; null if succeeded"
     )
     created_at: datetime = Field(..., description="Job submission timestamp")
-    started_at: Optional[datetime] = Field(
+    started_at: datetime | None = Field(
         None, description="When worker started processing (null if pending)"
     )
-    finished_at: Optional[datetime] = Field(
+    finished_at: datetime | None = Field(
         None, description="When job completed or failed (null if not finished)"
     )
 
@@ -143,12 +143,12 @@ class TemplateInfo(BaseModel):
     has_headers: bool = Field(
         ..., description="Whether the template expects CSV with header row"
     )
-    fields: List[str] = Field(
+    fields: list[str] = Field(
         ...,
         description="List of field names or positions (e.g., ['CODE', 'ITEM'] or ['1', '2'])",
     )
     field_count: int = Field(..., description="Number of fields in the template")
-    merge_type: Optional[str] = Field(
+    merge_type: str | None = Field(
         None, description="Internal gLabels merge type (e.g., 'Text/Comma/Line1Keys')"
     )
 

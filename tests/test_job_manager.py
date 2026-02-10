@@ -16,7 +16,7 @@ Covers:
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -119,9 +119,9 @@ def test_cleanup_jobs():
         "filename": "out.pdf",
         "template": "demo.glabels",
         "error": None,
-        "created_at": datetime.now(timezone.utc) - timedelta(hours=1),
-        "started_at": datetime.now(timezone.utc) - timedelta(hours=1),
-        "finished_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "created_at": datetime.now(UTC) - timedelta(hours=1),
+        "started_at": datetime.now(UTC) - timedelta(hours=1),
+        "finished_at": datetime.now(UTC) - timedelta(hours=1),
         "request": req.model_dump(),
     }
 
@@ -141,8 +141,8 @@ def test_cleanup_jobs_skips_unfinished():
         "filename": "out.pdf",
         "template": "demo.glabels",
         "error": None,
-        "created_at": datetime.now(timezone.utc) - timedelta(hours=1),
-        "started_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "created_at": datetime.now(UTC) - timedelta(hours=1),
+        "started_at": datetime.now(UTC) - timedelta(hours=1),
         "finished_at": None,
         "request": req.model_dump(),
     }
@@ -156,7 +156,7 @@ def test_get_job_and_list_jobs():
 
     jm = JobManager()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     req = LabelRequest(template_name="demo.glabels", data=[{"A": 1}], copies=1)
 
     # Insert 3 jobs with different timestamps

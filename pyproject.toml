@@ -24,6 +24,11 @@ select = [
     "B",    # flake8-bugbear
     "UP",   # pyupgrade
 ]
+ignore = [
+    "E501",  # line-too-long (let IDE/formatter handle this)
+    "B904",  # raise-without-from (acceptable for API error conversion)
+    "B008",  # function-call-in-default (standard in FastAPI with Body())
+]
 
 # =============================================================================
 # Mypy - Type Checking

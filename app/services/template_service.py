@@ -5,7 +5,6 @@
 # - Integrates with parser system for format detection
 
 from pathlib import Path
-from typing import List
 
 from loguru import logger
 
@@ -32,7 +31,7 @@ class TemplateService:
             f"[TemplateService] Initialized with templates directory: {self.templates_dir}"
         )
 
-    def list_templates(self) -> List[TemplateInfo]:
+    def list_templates(self) -> list[TemplateInfo]:
         """
         List all available templates with their information.
 

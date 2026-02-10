@@ -7,7 +7,6 @@
 import gzip
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List
 
 import defusedxml.ElementTree as SafeET
 from loguru import logger
@@ -141,7 +140,7 @@ class CSVParser(BaseParser):
             merge_type=merge_type,
         )
 
-    def _extract_field_names(self, root: ET.Element) -> List[str]:
+    def _extract_field_names(self, root: ET.Element) -> list[str]:
         """
         Extract field names from template (for header format).
 
@@ -167,7 +166,7 @@ class CSVParser(BaseParser):
                 fields.add(field_attr)
         return sorted(list(fields))
 
-    def _extract_field_positions(self, root: ET.Element) -> List[str]:
+    def _extract_field_positions(self, root: ET.Element) -> list[str]:
         """
         Extract field positions from template (for no-header format).
 

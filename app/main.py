@@ -7,9 +7,9 @@
 # - Lifespan context manages JobManager
 # - Global config provided by app/config.py (pydantic-settings)
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +22,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.responses import Response
 
 from app.api import print_jobs
 from app.config import settings
@@ -48,7 +49,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI lifecycle: manage JobManager on startup/shutdown."""
     app.state.job_manager = JobManager()
     app.state.job_manager.start_workers()
-    app.state.start_time = datetime.now(timezone.utc)
+    app.state.start_time = datetime.now(UTC)
     logger.info("JobManager started in lifespan")
     try:
         yield
@@ -78,7 +79,9 @@ app = FastAPI(
 
 
 @app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
+async def request_id_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     header_name = settings.REQUEST_ID_HEADER
     request_id = request.headers.get(header_name) or uuid4().hex
     request.state.request_id = request_id
@@ -106,12 +109,14 @@ if origins:
 
 # Rate limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(
+    RateLimitExceeded, _rate_limit_exceeded_handler  # type: ignore[arg-type]
+)
 app.add_middleware(SlowAPIMiddleware)
 
 # Prometheus metrics
 if settings.ENABLE_METRICS:
-    def _update_custom_gauges(info):
+    def _update_custom_gauges(info: Any) -> None:
         """Callback: update business gauges on every request."""
         jm = getattr(app.state, "job_manager", None)
         if jm and hasattr(jm, "queue"):
@@ -150,7 +155,7 @@ async def health_check() -> dict[str, str]:
 @app.get("/", tags=["system"], summary="API root information")
 async def api_root(request: Request) -> dict[str, Any]:
     start_time: datetime = request.app.state.start_time
-    uptime_td: timedelta = datetime.now(timezone.utc) - start_time
+    uptime_td: timedelta = datetime.now(UTC) - start_time
     return {
         "service": SERVICE_NAME,
         "version": VERSION,

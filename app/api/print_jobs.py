@@ -16,8 +16,7 @@ from loguru import logger
 
 from app.config import settings
 from app.core.limiter import RATE_LIMIT, limiter
-from app.schema import (JobStatusResponse, JobSubmitResponse, LabelRequest,
-                        TemplateInfo)
+from app.schema import JobStatusResponse, JobSubmitResponse, LabelRequest, TemplateInfo
 
 # Create router - all APIs will be mounted under /labels
 router = APIRouter(prefix="/labels", tags=["Labels"])

@@ -11,7 +11,7 @@ Covers essential API functionality:
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -33,7 +33,7 @@ class FakeJobManager:
 
     async def submit_job(self, req):
         job_id = "test-job-id"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self.jobs[job_id] = {
             "status": "pending",
             "filename": "test.pdf",
@@ -191,7 +191,7 @@ class TestAPIEndpoints:
     def test_list_jobs_with_limit(self, client_with_fake_manager):
         """Should respect limit when listing jobs."""
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(3):
             jm.jobs[f"job-{i}"] = {
                 "status": "done",
@@ -211,7 +211,7 @@ class TestAPIEndpoints:
     def test_download_job_not_done(self, client_with_fake_manager):
         """Should return 409 when job is not done."""
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jm.jobs["pending-job"] = {
             "status": "pending",
             "filename": "pending.pdf",
@@ -235,7 +235,7 @@ class TestAPIEndpoints:
         pdf_path.write_text("pdf")
 
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jm.jobs["done-job"] = {
             "status": "done",
             "filename": "done.pdf",
@@ -259,7 +259,7 @@ class TestAPIEndpoints:
         pdf_path.write_text("pdf")
 
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jm.jobs["done-job"] = {
             "status": "done",
             "filename": "done.pdf",
@@ -306,9 +306,9 @@ class TestSSEEndpoint:
             "filename": "test.pdf",
             "template": "demo.glabels",
             "error": None,
-            "created_at": datetime.now(timezone.utc),
-            "started_at": datetime.now(timezone.utc),
-            "finished_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "started_at": datetime.now(UTC),
+            "finished_at": datetime.now(UTC),
             "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
         }
 
@@ -334,9 +334,9 @@ class TestSSEEndpoint:
             "filename": "failed_job.pdf",  # filename is set even for failed jobs
             "template": "demo.glabels",
             "error": "Test error message",
-            "created_at": datetime.now(timezone.utc),
-            "started_at": datetime.now(timezone.utc),
-            "finished_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "started_at": datetime.now(UTC),
+            "finished_at": datetime.now(UTC),
             "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
         }
 

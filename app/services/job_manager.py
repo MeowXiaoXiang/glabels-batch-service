@@ -6,9 +6,9 @@
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -27,7 +27,7 @@ class JobManager:
         # Worker task list
         self.workers: list[asyncio.Task[None]] = []
         # Scheduled cleanup task
-        self.cleanup_task: Optional[asyncio.Task[None]] = None
+        self.cleanup_task: asyncio.Task[None] | None = None
 
         # Counter: total submitted jobs (lifetime, reset on restart)
         self.jobs_total: int = 0
@@ -59,7 +59,7 @@ class JobManager:
         """
         Create initial job record (pending status).
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return {
             "status": "pending",
             "filename": filename,  # output filename (PDF)
@@ -87,7 +87,7 @@ class JobManager:
                 job_id, req, filename = await self.queue.get()
                 job = self.jobs[job_id]
                 job["status"] = "running"
-                job["started_at"] = datetime.now(timezone.utc)
+                job["started_at"] = datetime.now(UTC)
 
                 logger.debug(
                     f"[Worker-{wid}] START job_id={job_id}, template={req.template_name}"
@@ -110,7 +110,7 @@ class JobManager:
                     job["error"] = str(e)
                     logger.exception(f"[Worker-{wid}] job_id={job_id} failed")
                 finally:
-                    job["finished_at"] = datetime.now(timezone.utc)
+                    job["finished_at"] = datetime.now(UTC)
                     self.queue.task_done()
                     self._cleanup_jobs()
         except asyncio.CancelledError:
@@ -125,7 +125,7 @@ class JobManager:
         Cleanup expired job records and scan output/ to delete old PDFs.
         Uses file modification time to handle orphaned files as well.
         """
-        cutoff = datetime.now(timezone.utc) - self.retention
+        cutoff = datetime.now(UTC) - self.retention
 
         # 1. Cleanup expired job records from memory (only finished jobs)
         old_jobs = [
@@ -198,7 +198,7 @@ class JobManager:
                 self.queue.join(), timeout=settings.SHUTDOWN_TIMEOUT
             )
             logger.info("[JobManager] queue drained before shutdown")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "[JobManager] shutdown timeout reached, canceling workers"
             )
@@ -240,7 +240,7 @@ class JobManager:
         )
         return job_id
 
-    def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
         """
         Retrieve a single job by job_id.
         """

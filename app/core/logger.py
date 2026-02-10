@@ -6,7 +6,6 @@
 
 import sys
 from pathlib import Path
-
 from typing import Any
 
 from loguru import logger
@@ -42,7 +41,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
         log_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         # If directory creation fails, fallback to console log only
-        logger.add(
+        logger.add(  # type: ignore[call-overload]
             sys.stdout,
             level="DEBUG",
             colorize=not use_json,
@@ -54,7 +53,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
         return logger
 
     # Console: colored output (text) or JSON (serialize)
-    logger.add(
+    logger.add(  # type: ignore[call-overload]
         sys.stdout,
         level=log_level,
         colorize=not use_json,
@@ -65,7 +64,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
 
     # System log: INFO and above
     try:
-        logger.add(
+        logger.add(  # type: ignore[call-overload]
             log_dir / "system.log",
             level="INFO",
             rotation="5 MB",
@@ -81,7 +80,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
 
     # Error log: ERROR and above
     try:
-        logger.add(
+        logger.add(  # type: ignore[call-overload]
             log_dir / "error.log",
             level="ERROR",
             rotation="5 MB",
