@@ -1,5 +1,4 @@
 # app/core/logger.py
-# app/core/logger.py
 # Logger initialization: integrates console / system / error log
 # - Supports LOG_LEVEL from .env
 # - Automatically creates logs/ directory to avoid FileNotFoundError
@@ -15,7 +14,7 @@ from loguru import logger
 from app.config import settings
 
 
-def setup_logger(level: str | None = None) -> Any:
+def setup_logger(level: str | None = None, log_format: str | None = None) -> Any:
     """
     Initialize global logger.
     :param level: log level (DEBUG / INFO / WARNING / ERROR)
@@ -23,6 +22,19 @@ def setup_logger(level: str | None = None) -> Any:
     logger.remove()
 
     log_level = (level or settings.LOG_LEVEL).upper()
+    log_format_value = (log_format or settings.LOG_FORMAT).lower()
+    use_json = log_format_value == "json"
+
+    def _patcher(record: dict[str, Any]) -> None:
+        record["extra"].setdefault("request_id", "-")
+
+    text_format = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> "
+        "| <level>{level: <8}</level> "
+        "| <cyan>{file}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> "
+        "| <magenta>{extra[request_id]}</magenta> "
+        "- <level>{message}</level>"
+    )
 
     # Ensure log directory exists (configurable via settings.LOG_DIR)
     log_dir = Path(settings.LOG_DIR or "logs")
@@ -30,19 +42,25 @@ def setup_logger(level: str | None = None) -> Any:
         log_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         # If directory creation fails, fallback to console log only
-        logger.add(sys.stdout, level="DEBUG", colorize=True)
+        logger.add(
+            sys.stdout,
+            level="DEBUG",
+            colorize=not use_json,
+            format=None if use_json else text_format,
+            serialize=use_json,
+            patcher=_patcher,
+        )
         logger.error(f"Failed to create log directory: {e}")
         return logger
 
-    # Console: colored output
+    # Console: colored output (text) or JSON (serialize)
     logger.add(
         sys.stdout,
         level=log_level,
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> "
-        "| <level>{level: <8}</level> "
-        "| <cyan>{file}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> "
-        "- <level>{message}</level>",
+        colorize=not use_json,
+        format=None if use_json else text_format,
+        serialize=use_json,
+        patcher=_patcher,
     )
 
     # System log: INFO and above
@@ -53,8 +71,10 @@ def setup_logger(level: str | None = None) -> Any:
             rotation="5 MB",
             retention=10,
             encoding="utf-8",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} "
-            "| {file}:{function}:{line} - {message}",
+            format=None if use_json else "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} "
+            "| {file}:{function}:{line} | {extra[request_id]} - {message}",
+            serialize=use_json,
+            patcher=_patcher,
         )
     except Exception as e:
         logger.error(f"Failed to create system.log: {e}")
@@ -67,8 +87,10 @@ def setup_logger(level: str | None = None) -> Any:
             rotation="5 MB",
             retention=10,
             encoding="utf-8",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} "
-            "| {file}:{function}:{line} - {message}",
+            format=None if use_json else "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} "
+            "| {file}:{function}:{line} | {extra[request_id]} - {message}",
+            serialize=use_json,
+            patcher=_patcher,
         )
     except Exception as e:
         logger.error(f"Failed to create error.log: {e}")
