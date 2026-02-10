@@ -115,9 +115,11 @@ docker run -d \
 - [ ] Never commit `.env.production` to git
 
 > **Linux hosts**: The container runs as UID 1000. Ensure mounted directories are writable:
+>
 > ```bash
 > sudo chown -R 1000:1000 ./output ./logs ./templates
 > ```
+>
 > Docker Desktop (Windows/Mac) handles permissions automatically — no action needed.
 
 ---
