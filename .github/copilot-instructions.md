@@ -11,7 +11,7 @@ FastAPI microservice wrapping gLabels CLI: **JSON → CSV → gLabels Template �
 
 Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEngine`
 
-**Version**: see `app/core/version.py` (`VERSION`, `SERVICE_NAME`)
+**Version**: see `app/core/version.py` (`VERSION`, `SERVICE_NAME` = `gLabels Batch Service`)
 
 ## Key Files
 
@@ -21,6 +21,7 @@ Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEn
 | `app/services/job_manager.py` | In-memory job store, asyncio queue, worker pool |
 | `app/services/label_print.py` | JSON→CSV, batch splitting, PDF merging |
 | `app/utils/glabels_engine.py` | Async subprocess wrapper for `glabels-3-batch` |
+| `app/utils/cpu_detect.py` | Container-aware CPU count (cgroup v2/v1 → os.cpu_count) |
 | `app/services/template_service.py` | Template discovery, format detection |
 | `app/parsers/__init__.py` | Parser factory (`get_parser()`) |
 | `app/parsers/base_parser.py` | Abstract base class for template parsers |
@@ -28,6 +29,7 @@ Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEn
 | `app/schema.py` | Pydantic models and validation |
 | `app/api/print_jobs.py` | All `/labels/*` endpoints |
 | `app/config.py` | pydantic-settings, all env vars |
+| `app/core/limiter.py` | Shared SlowAPI rate limiter instance |
 | `app/core/logger.py` | loguru logging setup |
 
 ## Architecture & Conventions
@@ -66,9 +68,8 @@ Do not hardcode absolute paths; always use these relative directories.
 
 ### System (in `app/main.py`)
 
-- `GET /` — API root info
+- `GET /` — API root info (service, version, uptime, docs links)
 - `GET /health` — health check
-- `GET /info` — runtime info (uptime, workers, queue_size, jobs_total)
 
 ### Labels (in `app/api/print_jobs.py`, prefix `/labels`)
 
@@ -90,7 +91,7 @@ All defined in `app/config.py`:
 | `HOST` / `PORT` | Server bind address | `0.0.0.0` / `8000` |
 | `RELOAD` | Auto-reload on code changes (dev only) | `false` |
 | `KEEP_CSV` | Retain temp CSV files for debugging | `false` |
-| `MAX_PARALLEL` | Worker count (0 = auto, CPU-1) | `0` |
+| `MAX_PARALLEL` | Worker count (0 = auto, cgroup-aware) | `0` |
 | `MAX_LABELS_PER_BATCH` | Labels per batch before auto-split and merge | `300` |
 | `MAX_LABELS_PER_JOB` | Max labels per request | `2000` |
 | `GLABELS_TIMEOUT` | **Per-batch** subprocess timeout in seconds | `600` |
@@ -99,7 +100,12 @@ All defined in `app/config.py`:
 | `MAX_FIELDS_PER_LABEL` | Max fields per label record | `50` |
 | `MAX_FIELD_LENGTH` | Max length per field value | `2048` |
 | `LOG_LEVEL` | DEBUG / INFO / WARNING / ERROR | `INFO` |
+| `LOG_FORMAT` | Logging format (text/json) | `text` |
 | `LOG_DIR` | Log file directory | `logs` |
+| `REQUEST_ID_HEADER` | Request ID header name | `X-Request-ID` |
+| `RATE_LIMIT` | Rate limit for `/labels/print` | `60/minute` |
+| `ENABLE_METRICS` | Enable Prometheus `/metrics` endpoint | `true` |
+| `SHUTDOWN_TIMEOUT` | Graceful shutdown queue drain timeout (seconds) | `30` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated allowed origins (empty = disabled) | `` |
 
 ## Developer Workflows
@@ -120,15 +126,16 @@ pytest tests/ -v
 # VS Code: press F5 (uses .vscode/launch.json)
 ```
 
-## Test Suite (51 tests)
+## Test Suite (71 tests)
 
 | File | Tests | Focus |
 |------|-------|-------|
 | `test_glabels_engine.py` | 7 | Subprocess mock: success, failure, timeout |
-| `test_job_manager.py` | 7 | Job lifecycle, workers, cleanup |
-| `test_template_service.py` | 6 | Template discovery and parsing |
+| `test_job_manager.py` | 8 | Job lifecycle, workers, cleanup |
+| `test_template_service.py` | 7 | Template discovery and parsing |
 | `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 11 | API validation, error responses |
+| `test_api_endpoints.py` | 17 | API validation, error responses |
+| `test_cpu_detect.py` | 12 | cgroup v2/v1 parsing, fallback to os |
 | `test_integration.py` | 4 | End-to-end workflows |
 
 ## Patterns & Gotchas

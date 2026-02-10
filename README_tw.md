@@ -1,7 +1,7 @@
 # gLabels Batch Service
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.119.0-009688?logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.128.6-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
@@ -96,9 +96,12 @@ curl http://localhost:8000/labels/jobs/{job_id}
 {
   "job_id": "abc123...",
   "status": "done",
-  "template_name": "demo.glabels",
+  "template": "demo.glabels",
+  "filename": "demo_20260209_103000.pdf",
+  "error": null,
   "created_at": "2026-02-09T10:30:00",
-  "pdf_filename": "demo_20260209_103000.pdf"
+  "started_at": "2026-02-09T10:30:01",
+  "finished_at": "2026-02-09T10:30:05"
 }
 ```
 
@@ -142,15 +145,16 @@ curl http://localhost:8000/labels/templates
 **回應範例：**
 
 ```json
-{
-  "templates": [
-    {
-      "name": "demo.glabels",
-      "fields": ["CODE", "ITEM"],
-      "format": "Avery 5160"
-    }
-  ]
-}
+[
+  {
+    "name": "demo.glabels",
+    "format_type": "CSV",
+    "has_headers": true,
+    "fields": ["CODE", "ITEM"],
+    "field_count": 2,
+    "merge_type": "Text/Comma/Line1Keys"
+  }
+]
 ```
 
 ---
@@ -164,13 +168,18 @@ curl http://localhost:8000/labels/templates
 | `ENVIRONMENT` | 執行環境 (development/production) | `production` |
 | `HOST` / `PORT` | 伺服器位址與埠號 | `0.0.0.0` / `8000` |
 | `RELOAD` | 程式碼變更時自動重載（僅開發） | `false` |
-| `MAX_PARALLEL` | 平行工作數 (0=自動 CPU-1) | `0` |
+| `MAX_PARALLEL` | 平行工作數 (0=自動，支援 cgroup 偵測) | `0` |
 | `MAX_LABELS_PER_BATCH` | 單批最大標籤數（超過自動分批） | `300` |
 | `MAX_LABELS_PER_JOB` | 單次請求最大標籤數 | `2000` |
 | `GLABELS_TIMEOUT` | 單批次處理逾時秒數 | `600` |
 | `RETENTION_HOURS` | 任務保存時數 | `24` |
 | `LOG_LEVEL` | 日誌等級 (DEBUG/INFO/WARNING/ERROR) | `INFO` |
+| `LOG_FORMAT` | 日誌格式 (text/json) | `text` |
 | `LOG_DIR` | 日誌檔案目錄 | `logs` |
+| `REQUEST_ID_HEADER` | Request ID Header 名稱 | `X-Request-ID` |
+| `RATE_LIMIT` | `/labels/print` 的速率限制 | `60/minute` |
+| `ENABLE_METRICS` | 啟用 Prometheus metrics 端點 | `true` |
+| `SHUTDOWN_TIMEOUT` | Graceful shutdown 逾時秒數 | `30` |
 | `KEEP_CSV` | 保留中繼 CSV 檔案（除錯用） | `false` |
 | `MAX_REQUEST_BYTES` | 請求 body 大小上限 | `5000000` |
 | `MAX_FIELDS_PER_LABEL` | 單筆資料最大欄位數 | `50` |
@@ -247,6 +256,14 @@ docker run -d \
 - [ ] 備份策略（定期備份 `templates/` 和 `output/`）
 - [ ] 不要將 `.env.production` 提交至 git
 
+> **Linux 主機**：容器以 UID 1000 執行，請確保掛載目錄有寫入權限：
+>
+> ```bash
+> sudo chown -R 1000:1000 ./output ./logs ./templates
+> ```
+>
+> Docker Desktop（Windows/Mac）會自動處理權限，無需額外操作。
+
 ---
 
 ## 常見問題
@@ -291,8 +308,32 @@ docker compose exec glabels-batch-service sh
 curl http://localhost:8000/health
 
 # 檢查執行資訊
-curl http://localhost:8000/info
+curl http://localhost:8000/
 ```
+
+---
+
+## 可觀測性
+
+### Request ID
+
+每個回應都包含 `X-Request-ID` header。可在請求時帶入自定 ID，或由伺服器自動產生。用於在 log 中追蹤完整請求流程。
+
+### 速率限制
+
+`/labels/print` 套用速率限制（預設 `60/minute`）。超過限制會回傳 `429 Too Many Requests`。透過 `RATE_LIMIT` 環境變數調整。
+
+### Prometheus Metrics
+
+`ENABLE_METRICS=true`（預設）時提供 `/metrics` 端點，輸出請求數、延遲分布與狀態碼統計，可接 Prometheus / Grafana。
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+### Graceful Shutdown
+
+關機時會等待最多 `SHUTDOWN_TIMEOUT` 秒（預設 30），讓執行中的任務完成後才停止 worker。
 
 ---
 
@@ -315,6 +356,7 @@ app/
 ├── api/
 │   └── print_jobs.py      # API 路由與端點
 ├── core/
+│   ├── limiter.py         # 速率限制器實例（SlowAPI）
 │   ├── logger.py          # 日誌設定
 │   └── version.py         # 版本資訊
 ├── parsers/
@@ -325,6 +367,7 @@ app/
 │   ├── label_print.py     # JSON→CSV、批次分割、PDF 合併
 │   └── template_service.py # 模板探索與解析
 ├── utils/
+│   ├── cpu_detect.py      # 容器感知 CPU 偵測（cgroup）
 │   └── glabels_engine.py  # glabels-3-batch CLI 包裝器
 ├── config.py              # 環境設定（pydantic-settings）
 ├── schema.py              # Pydantic 資料模型

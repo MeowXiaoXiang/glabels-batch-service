@@ -30,6 +30,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./app ./app
 COPY ./templates ./templates
 
+# Create non-root user (UID 1000 = most common Linux default user)
+# This ensures volume mounts on Linux hosts work without extra chown
+RUN groupadd -r -g 1000 appuser && useradd -r -u 1000 -g appuser -s /sbin/nologin appuser \
+    && mkdir -p /app/output /app/temp /app/logs \
+    && chown -R appuser:appuser /app/output /app/temp /app/logs
+
+USER appuser
+
 EXPOSE 8000
 
 # Healthcheck

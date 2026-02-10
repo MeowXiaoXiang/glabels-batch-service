@@ -1,7 +1,7 @@
 # gLabels Batch Service
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.119.0-009688?logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.128.6-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
@@ -114,6 +114,12 @@ docker run -d \
 - [ ] Resource limits set
 - [ ] Never commit `.env.production` to git
 
+> **Linux hosts**: The container runs as UID 1000. Ensure mounted directories are writable:
+> ```bash
+> sudo chown -R 1000:1000 ./output ./logs ./templates
+> ```
+> Docker Desktop (Windows/Mac) handles permissions automatically — no action needed.
+
 ---
 
 ## Configuration
@@ -127,13 +133,18 @@ Copy `.env.example` to `.env` and adjust:
 | `ENVIRONMENT` | Runtime environment (development/production) | `production` |
 | `HOST` / `PORT` | Server address and port | `0.0.0.0` / `8000` |
 | `RELOAD` | Auto-reload on code changes (dev only) | `false` |
-| `MAX_PARALLEL` | Parallel workers (0=auto, CPU-1) | `0` |
+| `MAX_PARALLEL` | Parallel workers (0=auto, cgroup-aware) | `0` |
 | `MAX_LABELS_PER_BATCH` | Labels per batch before split | `300` |
 | `MAX_LABELS_PER_JOB` | Max labels per request | `2000` |
 | `GLABELS_TIMEOUT` | Timeout per batch in seconds | `600` |
 | `RETENTION_HOURS` | Job retention time | `24` |
 | `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
+| `LOG_FORMAT` | Logging format (text/json) | `text` |
 | `LOG_DIR` | Log file directory | `logs` |
+| `REQUEST_ID_HEADER` | Request ID header name | `X-Request-ID` |
+| `RATE_LIMIT` | Rate limit for `/labels/print` | `60/minute` |
+| `ENABLE_METRICS` | Enable Prometheus metrics endpoint | `true` |
+| `SHUTDOWN_TIMEOUT` | Graceful shutdown timeout (seconds) | `30` |
 | `KEEP_CSV` | Retain intermediate CSV files | `false` |
 | `MAX_REQUEST_BYTES` | Request body size limit | `5000000` |
 | `MAX_FIELDS_PER_LABEL` | Max fields per label record | `50` |
@@ -194,9 +205,12 @@ curl http://localhost:8000/labels/jobs/{job_id}
 {
   "job_id": "abc123...",
   "status": "done",
-  "template_name": "demo.glabels",
+  "template": "demo.glabels",
+  "filename": "demo_20260209_103000.pdf",
+  "error": null,
   "created_at": "2026-02-09T10:30:00",
-  "pdf_filename": "demo_20260209_103000.pdf"
+  "started_at": "2026-02-09T10:30:01",
+  "finished_at": "2026-02-09T10:30:05"
 }
 ```
 
@@ -240,15 +254,16 @@ curl http://localhost:8000/labels/templates
 **Response Example:**
 
 ```json
-{
-  "templates": [
-    {
-      "name": "demo.glabels",
-      "fields": ["CODE", "ITEM"],
-      "format": "Avery 5160"
-    }
-  ]
-}
+[
+  {
+    "name": "demo.glabels",
+    "format_type": "CSV",
+    "has_headers": true,
+    "fields": ["CODE", "ITEM"],
+    "field_count": 2,
+    "merge_type": "Text/Comma/Line1Keys"
+  }
+]
 ```
 
 ---
@@ -278,6 +293,30 @@ curl http://localhost:8000/labels/templates
 
 ---
 
+## Observability
+
+### Request ID
+
+Every response includes an `X-Request-ID` header. Pass your own in the request or let the server generate one. Use it to trace a request through logs.
+
+### Rate Limiting
+
+`/labels/print` is rate-limited (default `60/minute`). Exceeding the limit returns `429 Too Many Requests`. Adjust via `RATE_LIMIT` env var.
+
+### Prometheus Metrics
+
+When `ENABLE_METRICS=true` (default), a `/metrics` endpoint exposes request counts, latency histograms, and status codes in Prometheus format.
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+### Graceful Shutdown
+
+On shutdown the service waits up to `SHUTDOWN_TIMEOUT` seconds (default 30) for running jobs to finish before stopping workers.
+
+---
+
 ## Architecture
 
 ### Execution Flow
@@ -297,6 +336,7 @@ app/
 ├── api/
 │   └── print_jobs.py          # API routes and endpoints
 ├── core/
+│   ├── limiter.py             # Rate limiter instance (SlowAPI)
 │   ├── logger.py              # Logging configuration
 │   └── version.py             # Version info
 ├── parsers/
@@ -307,6 +347,7 @@ app/
 │   ├── label_print.py         # JSON→CSV, batch split, PDF merge
 │   └── template_service.py    # Template discovery and parsing
 ├── utils/
+│   ├── cpu_detect.py          # Container-aware CPU detection (cgroup)
 │   └── glabels_engine.py      # glabels-3-batch CLI wrapper
 ├── config.py                  # Environment configuration (pydantic-settings)
 ├── schema.py                  # Pydantic data models
@@ -381,7 +422,7 @@ docker compose exec glabels-batch-service sh
 curl http://localhost:8000/health
 
 # View runtime info
-curl http://localhost:8000/info
+curl http://localhost:8000/
 ```
 
 ---
@@ -415,7 +456,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ruff check app/ tests/
 
 # Format code
-black app/ tests/
+ruff format app/ tests/
 
 # Type checking
 mypy app/

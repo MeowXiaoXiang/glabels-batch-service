@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -35,13 +35,13 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Type check with mypy
         run: |
-          mypy app/ --strict --no-implicit-reexport
+          mypy app/
 
   security:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -50,14 +50,14 @@ jobs:
           pip install bandit
       - name: Security scan with bandit
         run: |
-          bandit -r app/ -ll
+          bandit -c pyproject.toml -r app/
 
   test:
     runs-on: ubuntu-latest
     needs: [ lint, typecheck, security ]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install system dependencies
@@ -70,9 +70,9 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Run tests with coverage
         run: |
-          pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml
+          pytest --cov-report=xml
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
@@ -94,9 +94,9 @@ jobs:
           echo "Testing /health endpoint..."
           curl -f http://localhost:8000/health || exit 1
           
-          # Test info endpoint
-          echo "Testing /info endpoint..."
-          curl -f http://localhost:8000/info || exit 1
+          # Test root endpoint
+          echo "Testing / endpoint..."
+          curl -f http://localhost:8000/ || exit 1
           
           # Test templates endpoint
           echo "Testing /labels/templates endpoint..."
