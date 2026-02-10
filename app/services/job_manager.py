@@ -5,7 +5,6 @@
 # - debug logs: worker start, job execution, cleanup
 
 import asyncio
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +15,7 @@ from loguru import logger
 from app.config import settings
 from app.schema import LabelRequest
 from app.services.label_print import LabelPrintService
+from app.utils.cpu_detect import get_available_cpus
 
 
 class JobManager:
@@ -33,8 +33,10 @@ class JobManager:
         self.jobs_total: int = 0
 
         # Determine max concurrency
+        # get_available_cpus() reads cgroup limits inside containers,
+        # falling back to os.cpu_count() on bare-metal / non-Linux.
         if settings.MAX_PARALLEL in (0, None):
-            self.max_parallel = max(1, (os.cpu_count() or 2) - 1)
+            self.max_parallel = max(1, get_available_cpus() - 1)
         else:
             self.max_parallel = int(settings.MAX_PARALLEL)
 
@@ -190,6 +192,17 @@ class JobManager:
         """
         Stop all workers and cleanup scheduler.
         """
+        # Drain queue before shutdown (best effort)
+        try:
+            await asyncio.wait_for(
+                self.queue.join(), timeout=settings.SHUTDOWN_TIMEOUT
+            )
+            logger.info("[JobManager] queue drained before shutdown")
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[JobManager] shutdown timeout reached, canceling workers"
+            )
+
         # Stop cleanup scheduler
         if self.cleanup_task:
             self.cleanup_task.cancel()
