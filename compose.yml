@@ -4,15 +4,7 @@
 services:
   glabels-batch-service:
     build: .
-    env_file: .env  # Load environment variables from .env file
-    environment:
-      - ENVIRONMENT=development
-      - RELOAD=true
-      - LOG_FORMAT=text
-      - ENABLE_METRICS=true
-      - RATE_LIMIT=60/minute
-      - REQUEST_ID_HEADER=X-Request-ID
-      - SHUTDOWN_TIMEOUT=30
+    env_file: .env  # Load environment variables from .env (copy from .env.example)
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./app:/app/app:ro          # Mount for hot reload (read-only)

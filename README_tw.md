@@ -19,7 +19,7 @@
 # 1. 複製環境設定
 cp .env.example .env
 
-# 2. 啟動服務
+# 2. 啟動服務（docker compose 會讀取 .env）
 docker compose up -d
 
 # 3. 開啟 API 文件
@@ -45,6 +45,11 @@ docker compose up -d
 # 正式環境
 docker compose -f compose.prod.yml up -d
 ```
+
+說明：
+
+- `compose.yml` 只會讀取 `.env`，不再覆蓋任何設定。要改 `LOG_FORMAT` 等設定請直接改 `.env`。
+- 若沒有 `.env`，容器會無法啟動，請先從 `.env.example` 複製。
 
 ### 原生安裝（Linux/WSL）
 
@@ -443,5 +448,5 @@ sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
 # 執行服務（啟用熱重載）
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 或按 F5 在 VS Code 中除錯
+# 或按 F5 在 VS Code 中除錯（會讀取 .env）
 ```

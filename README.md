@@ -30,7 +30,7 @@ A **FastAPI** microservice for batch label printing using **gLabels**. Converts 
 # 1. Copy environment template
 cp .env.example .env
 
-# 2. Start service
+# 2. Start service (docker compose reads .env)
 docker compose up -d
 
 # 3. Open API docs
@@ -48,6 +48,11 @@ http://localhost:8000/docs
 ```bash
 docker compose up -d
 ```
+
+Notes:
+
+- `compose.yml` only loads `.env` and does not override values. Update `.env` to change settings like `LOG_FORMAT`.
+- Missing `.env` will fail to start the container. Copy from `.env.example` first.
 
 **Production:**
 
@@ -448,7 +453,7 @@ sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
 # Run service (with hot reload)
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Or press F5 in VS Code for debugging
+# Or press F5 in VS Code for debugging (uses .env)
 ```
 
 ### Code Quality
