@@ -1,0 +1,75 @@
+# pyproject.toml
+# Centralized project metadata and tool configuration
+# All tools (ruff, mypy, pytest, bandit) read settings from here automatically
+
+[project]
+name = "glabels-batch-service"
+version = "1.1.0"
+description = "FastAPI microservice for batch label printing using gLabels"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+
+# =============================================================================
+# Ruff - Linter & Formatter
+# =============================================================================
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+]
+
+# =============================================================================
+# Mypy - Type Checking
+# =============================================================================
+[tool.mypy]
+python_version = "3.12"
+strict = true
+no_implicit_reexport = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "defusedxml.*"
+ignore_missing_imports = true
+
+# =============================================================================
+# Pytest - Testing
+# =============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--cov=app",
+    "--cov-report=term-missing",
+]
+
+# =============================================================================
+# Coverage - Report Settings
+# =============================================================================
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
+
+# =============================================================================
+# Bandit - Security Scanning
+# =============================================================================
+[tool.bandit]
+targets = ["app"]
+severity = "LOW"      # -ll equivalent: report LOW and above
+confidence = "LOW"

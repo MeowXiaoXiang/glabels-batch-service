@@ -14,6 +14,9 @@ services:
 
       # Application settings
       - KEEP_CSV=${KEEP_CSV:-false}
+      # ⚠ MAX_PARALLEL=0 auto-detects cgroup CPU quota.
+      #   With limits.cpus=4, auto will resolve to 3 workers.
+      #   Set explicitly if you want a different ratio.
       - MAX_PARALLEL=${MAX_PARALLEL:-0}
       - MAX_LABELS_PER_BATCH=${MAX_LABELS_PER_BATCH:-300}
       - MAX_LABELS_PER_JOB=${MAX_LABELS_PER_JOB:-2000}
@@ -25,7 +28,14 @@ services:
 
       # Logging settings
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+      - LOG_FORMAT=${LOG_FORMAT:-text}
       - LOG_DIR=${LOG_DIR:-logs}
+
+      # Safety & observability
+      - REQUEST_ID_HEADER=${REQUEST_ID_HEADER:-X-Request-ID}
+      - RATE_LIMIT=${RATE_LIMIT:-60/minute}
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-30}
 
       # CORS settings
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}

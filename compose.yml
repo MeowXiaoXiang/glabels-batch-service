@@ -8,6 +8,11 @@ services:
     environment:
       - ENVIRONMENT=development
       - RELOAD=true
+      - LOG_FORMAT=text
+      - ENABLE_METRICS=true
+      - RATE_LIMIT=60/minute
+      - REQUEST_ID_HEADER=X-Request-ID
+      - SHUTDOWN_TIMEOUT=30
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./app:/app/app:ro          # Mount for hot reload (read-only)
