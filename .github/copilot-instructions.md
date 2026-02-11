@@ -81,8 +81,8 @@ Do not hardcode absolute paths; always use these relative directories.
 - `GET /labels/jobs/{job_id}` — get job status
 - `GET /labels/jobs/{job_id}/stream` — SSE real-time status
 - `GET /labels/jobs/{job_id}/download` — download PDF (404/409/410)
-- `GET /labels/templates` — list all templates with fields
-- `GET /labels/templates/{template_name}` — specific template info
+- `GET /labels/templates` — list all template summaries (no field details; see endpoint below for full schema)
+- `GET /labels/templates/{template_name}` — full template info including fields
 
 ## Environment Variables
 
