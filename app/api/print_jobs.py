@@ -556,7 +556,7 @@ async def list_templates(limit: int = 100) -> list[TemplateSummary]:
     |-----------|------|---------|-------|
     | `limit` | integer | 100 | Max templates per response; 0 = no limit |
 
-    > **Pro Tip**: For detailed field information, use `GET /templates/{template_name}`
+    > **Pro Tip**: For detailed field information, use `GET /labels/templates/{template_name}`
 
     ## Field Format Clarification
 
