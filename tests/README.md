@@ -15,15 +15,16 @@ pytest tests/ --cov=app --cov-report=html
 pytest tests/test_glabels_engine.py -v
 ```
 
-## Test Coverage: 51 Tests
+## Test Coverage: 71 Tests
 
 | Test File | Tests | Purpose |
 |-----------|-------|---------|
 | `test_glabels_engine.py` | 7 | CLI wrapper and subprocess handling |
-| `test_job_manager.py` | 7 | Job lifecycle and worker management |
-| `test_template_service.py` | 6 | Template discovery and parsing |
+| `test_job_manager.py` | 8 | Job lifecycle and worker management |
+| `test_template_service.py` | 7 | Template discovery and parsing |
 | `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 11 | API validation and error handling |
+| `test_api_endpoints.py` | 17 | API validation and error handling |
+| `test_cpu_detect.py` | 12 | Container-aware CPU detection (cgroup v2/v1) |
 | `test_integration.py` | 4 | End-to-end workflows |
 
 ## Key Test Areas
