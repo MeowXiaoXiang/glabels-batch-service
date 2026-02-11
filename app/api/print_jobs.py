@@ -7,6 +7,7 @@
 # - Template discovery and information
 
 import asyncio
+import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -313,6 +314,7 @@ async def stream_job_status(job_id: str, request: Request) -> StreamingResponse:
 
     async def event_generator() -> AsyncGenerator[str, None]:
         last_status = None
+        last_sent = time.time()
         while True:
             # Check if client disconnected
             if await request.is_disconnected():
@@ -331,6 +333,11 @@ async def stream_job_status(job_id: str, request: Request) -> StreamingResponse:
                 response = JobStatusResponse(job_id=job_id, **job)
                 yield f"event: status\ndata: {response.model_dump_json()}\n\n"
                 last_status = current_status
+                last_sent = time.time()
+            # Send keepalive comment every 30 seconds to prevent proxy timeout
+            elif time.time() - last_sent > 30:
+                yield ": keepalive\n\n"
+                last_sent = time.time()
 
             # Stop streaming on terminal states
             if current_status in ("done", "failed"):
@@ -523,7 +530,7 @@ async def list_jobs(request: Request, limit: int = 10) -> list[JobStatusResponse
         500: {"description": "Server error while reading templates"},
     },
 )
-async def list_templates() -> list[TemplateInfo]:
+async def list_templates(limit: int = 100) -> list[TemplateInfo]:
     """
     Discover all available gLabels template files with detailed field information.
 
@@ -568,12 +575,21 @@ async def list_templates() -> list[TemplateInfo]:
     ```
 
     > **Pro Tip**: Always check template field requirements before submitting print jobs!
+
+    ## Query Parameters
+
+    | Parameter | Type | Default | Description |
+    |-----------|------|---------|-------------|
+    | `limit` | integer | 100 | Maximum number of templates to return (0 = no limit) |
     """
     from app.services.template_service import TemplateService
 
     template_service = TemplateService()
     try:
         templates = template_service.list_templates()
+        # Apply limit (0 = no limit)
+        if limit > 0:
+            templates = templates[:limit]
         return templates
     except Exception as e:
         logger.error(f"[API] Failed to list templates: {e}")

@@ -119,6 +119,70 @@ docker run -d \
 - [ ] Resource limits set
 - [ ] Never commit `.env.production` to git
 
+### Using with nginx (Reverse Proxy)
+
+If deploying behind nginx, configure the following for proper SSE support:
+
+```nginx
+upstream backend {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    # SSE endpoints (real-time streaming)
+    location /labels/jobs/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        
+        # Disable buffering for Server-Sent Events
+        proxy_buffering off;
+        proxy_cache off;
+        
+        # Keep connection open for long-lived requests
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        
+        # Required headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        
+        # CORS (optional, if needed)
+        add_header Access-Control-Allow-Origin * always;
+    }
+
+    # All other endpoints (normal buffering)
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        
+        proxy_buffering on;
+        proxy_read_timeout 60s;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+}
+```
+
+**Key Configuration Points**:
+
+- `proxy_buffering off` — Required for SSE to work properly
+- `proxy_read_timeout 3600s` — Allow up to 1 hour for long-running jobs
+- `proxy_http_version 1.1` — Essential for connection reuse
+- `Connection ""` — Prevents nginx from adding `Connection: close`
+
+> **Tip**: If using SSL/TLS, ensure `proxy_set_header X-Forwarded-Proto $scheme;` is set so the app knows it's behind HTTPS.
+
 > **Linux hosts**: The container runs as UID 1000. Ensure mounted directories are writable:
 >
 > ```bash

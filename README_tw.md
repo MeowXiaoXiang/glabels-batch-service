@@ -261,6 +261,69 @@ docker run -d \
 - [ ] 備份策略（定期備份 `templates/` 和 `output/`）
 - [ ] 不要將 `.env.production` 提交至 git
 
+### 使用 nginx（反向代理）
+
+若在 nginx 後方部署，請設定以下參數以支援 SSE：
+
+```nginx
+upstream backend {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    # SSE 端點（即時推送）
+    location /labels/jobs/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        
+        # 關閉 buffering 以支援 Server-Sent Events
+        proxy_buffering off;
+        proxy_cache off;
+        
+        # 保持連線開啟以支援長期連線
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        
+        # 必要的 headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        
+        # CORS（optional，若需要）
+        add_header Access-Control-Allow-Origin * always;
+    }
+
+    # 其他端點（一般 buffering）
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        
+        proxy_buffering on;
+        proxy_read_timeout 60s;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+}
+```
+
+**關鍵設定點**：
+- `proxy_buffering off` — SSE 正常運作的必要條件
+- `proxy_read_timeout 3600s` — 允許最多 1 小時的長期運行任務
+- `proxy_http_version 1.1` — 連線重用的必要條件
+- `Connection ""` — 防止 nginx 加入 `Connection: close`
+
+> **提示**：若使用 SSL/TLS，請確保 `proxy_set_header X-Forwarded-Proto $scheme;` 被設定，以便應用知道它在 HTTPS 後方運行。
+
 > **Linux 主機**：容器以 UID 1000 執行，請確保掛載目錄有寫入權限：
 >
 > ```bash

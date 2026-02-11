@@ -2,6 +2,6 @@
 # Application metadata: version and service name.
 
 SERVICE_NAME: str = "gLabels Batch Service"
-VERSION: str = "1.1.0"
+VERSION: str = "1.2.0"
 
 __all__ = ["SERVICE_NAME", "VERSION"]
