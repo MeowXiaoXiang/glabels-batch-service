@@ -328,11 +328,8 @@ curl http://localhost:8000/labels/templates
 [
   {
     "name": "demo.glabels",
-    "format_type": "CSV",
-    "has_headers": true,
-    "fields": ["CODE", "ITEM"],
     "field_count": 2,
-    "merge_type": "Text/Comma/Line1Keys"
+    "has_headers": true
   }
 ]
 ```
