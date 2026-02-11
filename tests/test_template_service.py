@@ -19,7 +19,6 @@ from app.services.template_service import TemplateService
 
 
 class TestTemplateService:
-
     @pytest.fixture
     def service(self):
         """Create TemplateService instance for testing."""

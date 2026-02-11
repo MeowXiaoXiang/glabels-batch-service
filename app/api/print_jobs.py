@@ -17,7 +17,13 @@ from loguru import logger
 
 from app.config import settings
 from app.core.limiter import RATE_LIMIT, limiter
-from app.schema import JobStatusResponse, JobSubmitResponse, LabelRequest, TemplateInfo
+from app.schema import (
+    JobStatusResponse,
+    JobSubmitResponse,
+    LabelRequest,
+    TemplateInfo,
+    TemplateSummary,
+)
 
 # Create router - all APIs will be mounted under /labels
 router = APIRouter(prefix="/labels", tags=["Labels"])
@@ -367,7 +373,9 @@ async def stream_job_status(job_id: str, request: Request) -> StreamingResponse:
         410: {"description": "File has been deleted"},
     },
 )
-async def download_job_pdf(job_id: str, request: Request, preview: bool = False) -> FileResponse:
+async def download_job_pdf(
+    job_id: str, request: Request, preview: bool = False
+) -> FileResponse:
     """
     Download the generated PDF file when job status is `done`.
 
@@ -496,32 +504,26 @@ async def list_jobs(request: Request, limit: int = 10) -> list[JobStatusResponse
     return [JobStatusResponse(**j) for j in jobs]
 
 
-# List Available Templates
+# List Available Templates (Summary)
 @router.get(
     "/templates",
-    response_model=list[TemplateInfo],
-    summary="List available templates",
+    response_model=list[TemplateSummary],
+    summary="List available templates (summary)",
     responses={
         200: {
-            "description": "List of available templates",
+            "description": "List of available templates with basic info",
             "content": {
                 "application/json": {
                     "example": [
                         {
                             "name": "demo.glabels",
-                            "format_type": "CSV",
-                            "has_headers": True,
-                            "fields": ["CODE", "ITEM"],
                             "field_count": 2,
-                            "merge_type": "Text/Comma/Line1Keys",
+                            "has_headers": True,
                         },
                         {
                             "name": "non_head_demo.glabels",
-                            "format_type": "CSV",
-                            "has_headers": False,
-                            "fields": ["1", "2"],
                             "field_count": 2,
-                            "merge_type": "Text/Comma",
+                            "has_headers": False,
                         },
                     ]
                 }
@@ -530,67 +532,61 @@ async def list_jobs(request: Request, limit: int = 10) -> list[JobStatusResponse
         500: {"description": "Server error while reading templates"},
     },
 )
-async def list_templates(limit: int = 100) -> list[TemplateInfo]:
+async def list_templates(limit: int = 100) -> list[TemplateSummary]:
     """
-    Discover all available gLabels template files with detailed field information.
+    List all available gLabels templates with summary information.
 
-    ## Template Information
+    ## Response Fields (v2.0.0+)
 
-    Each template includes comprehensive metadata:
+    **Lightweight summary for efficient listing:**
 
     | Field | Type | Description |
     |-------|------|-------------|
     | `name` | string | Template filename (e.g., `demo.glabels`) |
-    | `format_type` | string | Always `"CSV"` for current implementation |
-    | `has_headers` | boolean | Whether CSV should include header row |
-    | `fields` | array | Field names or positions |
-    | `field_count` | integer | Total number of fields |
-    | `merge_type` | string | Internal gLabels format identifier |
+    | `field_count` | integer | Number of fields in template |
+    | `has_headers` | boolean | Whether CSV expects header row |
 
-    ## Format Types
+    ## When to Use
 
-    | Headers | `has_headers` | `fields` Example | Usage |
-    |---------|---------------|------------------|--------|
-    | With Headers | `true` | `["CODE", "ITEM"]` | CSV with header row |
-    | No Headers | `false` | `["1", "2"]` | CSV with position-based fields |
+    - **Browse available templates** - Quick discovery without overwhelming detail
+    - **Load dropdown menus** - Efficient pagination support via `limit` parameter
+    - **Field count filtering** - Identify simple (2-3) vs complex (10+) templates
 
-    > **Note**: All templates currently return `format_type: "CSV"` regardless of header configuration
+    ## Pagination
 
-    ## Field Matching
+    | Parameter | Type | Default | Notes |
+    |-----------|------|---------|-------|
+    | `limit` | integer | 100 | Max templates per response; 0 = no limit |
 
-    - **Header format**: Your JSON data keys must match field names exactly
-    - **No-header format**: Your JSON data will be mapped by position
+    > **Pro Tip**: For detailed field information, use `GET /templates/{template_name}`
 
-    ### Example Data Format
+    ## Field Format Clarification
 
-    ```json
-    // For template with fields: ["CODE", "ITEM"]
-    {
-        "template_name": "demo.glabels",
-        "data": [
-            {"CODE": "X123", "ITEM": "A001"},
-            {"CODE": "X124", "ITEM": "A002"}
-        ]
-    }
-    ```
-
-    > **Pro Tip**: Always check template field requirements before submitting print jobs!
-
-    ## Query Parameters
-
-    | Parameter | Type | Default | Description |
-    |-----------|------|---------|-------------|
-    | `limit` | integer | 100 | Maximum number of templates to return (0 = no limit) |
+    - **has_headers=true**: Use named fields (e.g., `CODE`, `ITEM`) in your JSON
+    - **has_headers=false**: Data mapped by position (1st, 2nd, 3rd field...)
     """
     from app.services.template_service import TemplateService
 
     template_service = TemplateService()
     try:
-        templates = template_service.list_templates()
+        # Get all templates as TemplateInfo, convert to TemplateSummary
+        full_templates = template_service.list_templates()
+
+        # Convert to summary format (extract only needed fields)
+        summaries = [
+            TemplateSummary(
+                name=t.name,
+                field_count=t.field_count,
+                has_headers=t.has_headers,
+            )
+            for t in full_templates
+        ]
+
         # Apply limit (0 = no limit)
         if limit > 0:
-            templates = templates[:limit]
-        return templates
+            summaries = summaries[:limit]
+
+        return summaries
     except Exception as e:
         logger.error(f"[API] Failed to list templates: {e}")
         raise HTTPException(
@@ -598,14 +594,14 @@ async def list_templates(limit: int = 100) -> list[TemplateInfo]:
         )
 
 
-# Get Specific Template Information
+# Get Specific Template Information (Detailed)
 @router.get(
     "/templates/{template_name}",
     response_model=TemplateInfo,
-    summary="Get template information",
+    summary="Get detailed template information",
     responses={
         200: {
-            "description": "Template information",
+            "description": "Detailed template information (v2.0.0+)",
             "content": {
                 "application/json": {
                     "example": {
@@ -625,7 +621,7 @@ async def list_templates(limit: int = 100) -> list[TemplateInfo]:
 )
 async def get_template_info(template_name: str) -> TemplateInfo:
     """
-    Get detailed information for a specific gLabels template file.
+    Get complete template details including all fields and format information.
 
     ## Path Parameters
 
@@ -633,34 +629,53 @@ async def get_template_info(template_name: str) -> TemplateInfo:
     |-----------|------|----------|-------------|
     | `template_name` | string | Yes | Template filename (e.g., `"demo.glabels"`) |
 
-    ## Response Details
+    ## Response Fields (v2.0.0+)
 
-    Returns complete template metadata including:
+    **Complete template metadata:**
 
-    ### Basic Information
-    - **name**: Template filename
-    - **format_type**: Output format (`"CSV"`)
-    - **field_count**: Total number of fields
+    | Field | Type | Description |
+    |-------|------|-------------|
+    | `name` | string | Template filename (e.g., `demo.glabels`) |
+    | `format_type` | string | Format type (currently `"CSV"`) |
+    | `has_headers` | boolean | Whether CSV expects header row |
+    | `fields` | array | List of field names/positions |
+    | `field_count` | integer | Total number of fields |
+    | `merge_type` | string | Internal gLabels merge type |
 
-    ### Field Configuration
-    - **has_headers**: Whether CSV expects header row
-    - **fields**: Array of field names or positions
-    - **merge_type**: Internal gLabels format identifier
-
-    ## Field Types Explained
+    ## Field Types
 
     | Type | `has_headers` | Fields Format | Your Data Format |
     |------|---------------|---------------|------------------|
-    | Named Fields | `true` | `["CODE", "ITEM"]` | `{"CODE": "X123", "ITEM": "A001"}` |
-    | Position Fields | `false` | `["1", "2"]` | Data mapped by array position |
+    | **Named Fields** | `true` | `["CODE", "ITEM"]` | `{"CODE": "X123", "ITEM": "A001"}` |
+    | **Position Fields** | `false` | `["1", "2"]` | Data mapped by array position |
 
-    ## Common Use Cases
+    ## Usage Examples
 
-    1. **Before submitting jobs** - Verify required field names
-    2. **Data validation** - Ensure your JSON matches template structure
-    3. **Integration** - Programmatically discover template capabilities
+    ### Step 1: List templates
+    ```
+    GET /labels/templates?limit=10
+    ```
+    Returns lightweight summaries.
 
-    > **Example**: For `demo.glabels`, expect fields `["CODE", "ITEM"]` with headers enabled
+    ### Step 2: Get template details
+    ```
+    GET /labels/templates/demo.glabels
+    ```
+    Returns full field information.
+
+    ### Step 3: Submit print job
+    ```
+    POST /labels/print
+    {
+        "template_name": "demo.glabels",
+        "data": [{"CODE": "X123", "ITEM": "A001"}]
+    }
+    ```
+
+    ## Common Errors
+
+    - **404**: Template file not found
+    - **500**: Error reading template file
     """
     from app.services.template_service import TemplateService
 

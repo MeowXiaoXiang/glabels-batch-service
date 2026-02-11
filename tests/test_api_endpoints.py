@@ -55,7 +55,6 @@ class FakeJobManager:
 
 
 class TestAPIEndpoints:
-
     @pytest.fixture
     def client(self):
         """Create test client for FastAPI app."""
@@ -130,7 +129,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.post("/labels/print", json=request_data)
         assert response.status_code == 422
 
-    def test_submit_labels_exceeds_field_length(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_field_length(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject fields exceeding MAX_FIELD_LENGTH."""
         monkeypatch.setattr("app.schema.settings.MAX_FIELD_LENGTH", 5)
         request_data = {
@@ -141,7 +142,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.post("/labels/print", json=request_data)
         assert response.status_code == 422
 
-    def test_submit_labels_exceeds_request_bytes(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_request_bytes(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject request body larger than MAX_REQUEST_BYTES."""
         monkeypatch.setattr("app.api.print_jobs.settings.MAX_REQUEST_BYTES", 10)
         request_data = {
@@ -156,7 +159,9 @@ class TestAPIEndpoints:
         )
         assert response.status_code == 413
 
-    def test_submit_labels_exceeds_max_labels(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_max_labels(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject when label count exceeds MAX_LABELS_PER_JOB."""
         monkeypatch.setattr("app.schema.settings.MAX_LABELS_PER_JOB", 2)
         request_data = {
@@ -171,7 +176,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.post("/labels/print", json=request_data)
         assert response.status_code == 422
 
-    def test_submit_labels_exceeds_field_count(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_field_count(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject when field count exceeds MAX_FIELDS_PER_LABEL."""
         monkeypatch.setattr("app.schema.settings.MAX_FIELDS_PER_LABEL", 1)
         request_data = {
@@ -226,7 +233,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.get("/labels/jobs/pending-job/download")
         assert response.status_code == 409
 
-    def test_download_job_success(self, client_with_fake_manager, tmp_path, monkeypatch):
+    def test_download_job_success(
+        self, client_with_fake_manager, tmp_path, monkeypatch
+    ):
         """Should download PDF when job is done and file exists."""
         monkeypatch.chdir(tmp_path)
         output_dir = Path("output")
@@ -250,7 +259,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.get("/labels/jobs/done-job/download")
         assert response.status_code == 200
 
-    def test_download_job_preview_inline(self, client_with_fake_manager, tmp_path, monkeypatch):
+    def test_download_job_preview_inline(
+        self, client_with_fake_manager, tmp_path, monkeypatch
+    ):
         """Should return inline Content-Disposition when preview=true."""
         monkeypatch.chdir(tmp_path)
         output_dir = Path("output")
@@ -271,7 +282,9 @@ class TestAPIEndpoints:
             "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
         }
 
-        response = client_with_fake_manager.get("/labels/jobs/done-job/download?preview=true")
+        response = client_with_fake_manager.get(
+            "/labels/jobs/done-job/download?preview=true"
+        )
         assert response.status_code == 200
         assert response.headers.get("content-disposition", "").startswith("inline")
 

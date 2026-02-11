@@ -25,7 +25,9 @@ from app.utils.glabels_engine import GlabelsEngine, GlabelsRunError
 
 
 # Utility functions
-def _collect_fieldnames(rows: list[dict[str, Any]], exclude: Iterable[str] = ()) -> list[str]:
+def _collect_fieldnames(
+    rows: list[dict[str, Any]], exclude: Iterable[str] = ()
+) -> list[str]:
     """
     Collect field names from JSON rows in the order of appearance.
     Optionally exclude specific keys.

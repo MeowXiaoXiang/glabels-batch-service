@@ -194,14 +194,10 @@ class JobManager:
         """
         # Drain queue before shutdown (best effort)
         try:
-            await asyncio.wait_for(
-                self.queue.join(), timeout=settings.SHUTDOWN_TIMEOUT
-            )
+            await asyncio.wait_for(self.queue.join(), timeout=settings.SHUTDOWN_TIMEOUT)
             logger.info("[JobManager] queue drained before shutdown")
         except TimeoutError:
-            logger.warning(
-                "[JobManager] shutdown timeout reached, canceling workers"
-            )
+            logger.warning("[JobManager] shutdown timeout reached, canceling workers")
 
         # Stop cleanup scheduler
         if self.cleanup_task:

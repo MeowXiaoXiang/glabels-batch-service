@@ -68,18 +68,14 @@ def get_available_cpus() -> int:
     cpus = _read_cgroup_v2()
     if cpus is not None:
         result = max(1, math.floor(cpus))
-        logger.debug(
-            "CPU detection: cgroup v2 quota={:.1f} → {} CPUs", cpus, result
-        )
+        logger.debug("CPU detection: cgroup v2 quota={:.1f} → {} CPUs", cpus, result)
         return result
 
     # Try cgroup v1
     cpus = _read_cgroup_v1()
     if cpus is not None:
         result = max(1, math.floor(cpus))
-        logger.debug(
-            "CPU detection: cgroup v1 quota={:.1f} → {} CPUs", cpus, result
-        )
+        logger.debug("CPU detection: cgroup v1 quota={:.1f} → {} CPUs", cpus, result)
         return result
 
     # Fallback: host CPU count

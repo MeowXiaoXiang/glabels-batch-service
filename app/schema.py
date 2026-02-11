@@ -3,7 +3,8 @@
 # - LabelRequest: Print job request schema
 # - JobSubmitResponse: Job submission response schema
 # - JobStatusResponse: Job status query response schema
-# - TemplateInfo: Template metadata schema
+# - TemplateSummary: Template summary for listing (lightweight)
+# - TemplateInfo: Template detailed information
 
 from datetime import datetime
 from typing import Any
@@ -133,9 +134,33 @@ class JobStatusResponse(BaseModel):
     )
 
 
+class TemplateSummary(BaseModel):
+    """
+    Lightweight template summary for list endpoints (v2.0.0+).
+    Used in GET /templates for compact listing with pagination support.
+    """
+
+    name: str = Field(..., description="Template filename (e.g., 'demo.glabels')")
+    field_count: int = Field(..., description="Number of fields in the template")
+    has_headers: bool = Field(
+        ..., description="Whether the template expects CSV with header row"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "demo.glabels",
+                "field_count": 2,
+                "has_headers": True,
+            }
+        }
+    )
+
+
 class TemplateInfo(BaseModel):
     """
-    Template information model for listing templates with field details.
+    Detailed template information for GET /templates/{template_name} endpoint (v2.0.0+).
+    Returns comprehensive metadata including all fields and format information.
     """
 
     name: str = Field(..., description="Template filename (e.g., 'demo.glabels')")

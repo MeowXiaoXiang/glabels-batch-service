@@ -32,9 +32,7 @@ from app.core.logger import setup_logger
 from app.services.job_manager import JobManager
 
 # Custom Prometheus gauges (business metrics)
-GAUGE_QUEUE_SIZE = Gauge(
-    "jobs_queue_size", "Number of jobs waiting in queue"
-)
+GAUGE_QUEUE_SIZE = Gauge("jobs_queue_size", "Number of jobs waiting in queue")
 GAUGE_ACTIVE_WORKERS = Gauge(
     "jobs_active_workers", "Number of workers currently processing jobs"
 )
@@ -92,6 +90,7 @@ async def request_id_middleware(
     response.headers[header_name] = request_id
     return response
 
+
 def _split_csv(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
@@ -110,12 +109,14 @@ if origins:
 # Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(
-    RateLimitExceeded, _rate_limit_exceeded_handler  # type: ignore[arg-type]
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,  # type: ignore[arg-type]
 )
 app.add_middleware(SlowAPIMiddleware)
 
 # Prometheus metrics
 if settings.ENABLE_METRICS:
+
     def _update_custom_gauges(info: Any) -> None:
         """Callback: update business gauges on every request."""
         jm = getattr(app.state, "job_manager", None)
@@ -140,7 +141,9 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     logger.bind(request_id=request_id).exception(
         f"Unhandled error on {request.url.path}: {exc}"
     )
-    response = JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    response = JSONResponse(
+        status_code=500, content={"detail": "Internal Server Error"}
+    )
     response.headers[settings.REQUEST_ID_HEADER] = request_id
     return response
 

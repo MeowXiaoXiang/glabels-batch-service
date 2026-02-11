@@ -48,9 +48,7 @@ __all__ = [
 class GlabelsRunError(RuntimeError):
     """Base error for glabels-3-batch execution, carries returncode and stderr."""
 
-    def __init__(
-        self, message: str, rc: int | None = None, stderr: str | None = None
-    ):
+    def __init__(self, message: str, rc: int | None = None, stderr: str | None = None):
         super().__init__(message)
         self.returncode = rc  # Subprocess return code (may be None if timeout)
         self.stderr = stderr or ""  # Captured stderr from the subprocess (may be empty)

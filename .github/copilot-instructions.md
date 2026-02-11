@@ -11,7 +11,7 @@ FastAPI microservice wrapping gLabels CLI: **JSON → CSV → gLabels Template �
 
 Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEngine`
 
-**Version**: Version number is hardcoded in `app/__init__.py` (`VERSION = "1.2.0"`) and must be kept in sync with `pyproject.toml`
+**Version**: Version number is hardcoded in `app/__init__.py` (`VERSION`) and must be kept in sync with `pyproject.toml`
 
 **Important**: When updating the version number, ensure to update it in `app/__init__.py`, `pyproject.toml`, **README.md**, and **README_tw.md** to keep them in sync.
 

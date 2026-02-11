@@ -31,7 +31,7 @@ def get_parser(format_type: str = "csv") -> BaseParser:
             return CSVParser()
         case _:
             raise ValueError(
-                f"Unsupported parser format: {format_type}. " f"Supported formats: csv"
+                f"Unsupported parser format: {format_type}. Supported formats: csv"
             )
 
 

@@ -49,9 +49,7 @@ class TestCgroupV2:
 
     def test_missing_file(self, tmp_path):
         """Non-existent file → None (no crash)"""
-        with patch(
-            "app.utils.cpu_detect._CGROUP_V2_CPU_MAX", tmp_path / "missing"
-        ):
+        with patch("app.utils.cpu_detect._CGROUP_V2_CPU_MAX", tmp_path / "missing"):
             assert _read_cgroup_v2() is None
 
 
@@ -128,15 +126,9 @@ class TestGetAvailableCpus:
     def test_falls_through_to_os(self, tmp_path):
         """No cgroup → falls back to os.cpu_count()"""
         with (
-            patch(
-                "app.utils.cpu_detect._CGROUP_V2_CPU_MAX", tmp_path / "nope"
-            ),
-            patch(
-                "app.utils.cpu_detect._CGROUP_V1_QUOTA", tmp_path / "nope1"
-            ),
-            patch(
-                "app.utils.cpu_detect._CGROUP_V1_PERIOD", tmp_path / "nope2"
-            ),
+            patch("app.utils.cpu_detect._CGROUP_V2_CPU_MAX", tmp_path / "nope"),
+            patch("app.utils.cpu_detect._CGROUP_V1_QUOTA", tmp_path / "nope1"),
+            patch("app.utils.cpu_detect._CGROUP_V1_PERIOD", tmp_path / "nope2"),
             patch("app.utils.cpu_detect.os.cpu_count", return_value=8),
         ):
             assert get_available_cpus() == 8

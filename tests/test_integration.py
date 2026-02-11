@@ -21,7 +21,6 @@ from app.services.template_service import TemplateService
 
 
 class TestEndToEndIntegration:
-
     @pytest.fixture
     def temp_workspace(self, tmp_path):
         """Create temporary workspace with directories and test files."""
