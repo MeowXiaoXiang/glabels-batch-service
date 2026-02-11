@@ -454,7 +454,8 @@ app/
 
 - 將 `.glabels` 模板檔案放置於 `templates/` 目錄
 - 系統自動探索並解析模板中的欄位定義
-- 使用 `/labels/templates` API 查看可用模板與欄位清單
+- 使用 `/labels/templates` API 查看可用模板清單（僅摘要資訊，不含欄位列表）
+- 使用 `/labels/templates/{template_name}` 取得指定模板的完整欄位與詳細資訊
 
 ### 資料格式要求
 
