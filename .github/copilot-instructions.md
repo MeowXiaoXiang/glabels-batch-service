@@ -28,7 +28,7 @@ Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEn
 | `app/parsers/__init__.py` | Parser factory (`get_parser()`) |
 | `app/parsers/base_parser.py` | Abstract base class for template parsers |
 | `app/parsers/csv_parser.py` | CSV format parser (header/no-header) |
-| `app/__init__.py` | Package metadata: `VERSION` (from pyproject.toml via importlib.metadata), `SERVICE_NAME` |
+| `app/__init__.py` | Package metadata: `VERSION` (hardcoded, keep in sync with pyproject.toml), `SERVICE_NAME` |
 | `app/schema.py` | Pydantic models and validation |
 | `app/api/print_jobs.py` | All `/labels/*` endpoints |
 | `app/config.py` | pydantic-settings, all env vars |
@@ -129,7 +129,7 @@ pytest tests/ -v
 # VS Code: press F5 (uses .vscode/launch.json)
 ```
 
-## Test Suite (71 tests)
+## Test Suite (76 tests)
 
 | File | Tests | Focus |
 |------|-------|-------|
@@ -137,7 +137,7 @@ pytest tests/ -v
 | `test_job_manager.py` | 8 | Job lifecycle, workers, cleanup |
 | `test_template_service.py` | 7 | Template discovery and parsing |
 | `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 17 | API validation, error responses |
+| `test_api_endpoints.py` | 22 | API validation, template endpoints, error responses |
 | `test_cpu_detect.py` | 12 | cgroup v2/v1 parsing, fallback to os |
 | `test_integration.py` | 4 | End-to-end workflows |
 

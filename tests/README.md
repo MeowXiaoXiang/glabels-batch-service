@@ -15,7 +15,7 @@ pytest tests/ --cov=app --cov-report=html
 pytest tests/test_glabels_engine.py -v
 ```
 
-## Test Coverage: 71 Tests
+## Test Coverage: 76 Tests
 
 | Test File | Tests | Purpose |
 |-----------|-------|---------|
@@ -23,7 +23,7 @@ pytest tests/test_glabels_engine.py -v
 | `test_job_manager.py` | 8 | Job lifecycle and worker management |
 | `test_template_service.py` | 7 | Template discovery and parsing |
 | `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 17 | API validation and error handling |
+| `test_api_endpoints.py` | 22 | API validation, template endpoints, error handling |
 | `test_cpu_detect.py` | 12 | Container-aware CPU detection (cgroup v2/v1) |
 | `test_integration.py` | 4 | End-to-end workflows |
 
@@ -61,6 +61,9 @@ pytest tests/test_glabels_engine.py -v
 ### API Endpoints (`test_api_endpoints.py`)
 
 - Request validation (template name, data format)
+- Template list returns TemplateSummary format (no detail fields)
+- Template detail returns full TemplateInfo with fields
+- Template limit parameter behavior
 - Error responses (404, 409, 410)
 - Schema validation
 

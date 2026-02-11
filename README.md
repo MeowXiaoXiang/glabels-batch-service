@@ -342,7 +342,7 @@ curl http://localhost:8000/labels/templates
 
 - Place `.glabels` template files in `templates/` directory
 - System automatically discovers and parses field definitions
-- Use `/labels/templates` API to view available templates and fields
+- Use `/labels/templates` API to browse available templates; use `/labels/templates/{name}` for field details
 
 ### Data Format Requirements
 

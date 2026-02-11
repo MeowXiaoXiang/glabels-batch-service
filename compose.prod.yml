@@ -14,7 +14,7 @@ services:
 
       # Application settings
       - KEEP_CSV=${KEEP_CSV:-false}
-      # ⚠ MAX_PARALLEL=0 auto-detects cgroup CPU quota.
+      #   MAX_PARALLEL=0 auto-detects cgroup CPU quota.
       #   With limits.cpus=4, auto will resolve to 3 workers.
       #   Set explicitly if you want a different ratio.
       - MAX_PARALLEL=${MAX_PARALLEL:-0}
@@ -58,11 +58,8 @@ services:
       start_period: 40s
       retries: 3
     
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-          memory: 2G
-        reservations:
-          cpus: '1'
-          memory: 512M
+    # Resource limits (Compose v2+ with Docker Engine 20.10+)
+    # These work with `docker compose up`, no Swarm required.
+    cpus: '4'
+    mem_limit: 2G
+    mem_reservation: 512M

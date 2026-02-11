@@ -13,6 +13,7 @@ Covers essential API functionality:
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -287,6 +288,95 @@ class TestAPIEndpoints:
         )
         assert response.status_code == 200
         assert response.headers.get("content-disposition", "").startswith("inline")
+
+
+class TestTemplateEndpoints:
+    """Tests for template listing and detail endpoints (v2.0.0 TemplateSummary)"""
+
+    @pytest.fixture
+    def client(self):
+        with TestClient(app) as client:
+            yield client
+
+    def _make_template_info(self, name="demo.glabels", has_headers=True):
+        from app.schema import TemplateInfo
+
+        fields = ["CODE", "ITEM"] if has_headers else ["1", "2"]
+        return TemplateInfo(
+            name=name,
+            format_type="CSV",
+            has_headers=has_headers,
+            fields=fields,
+            field_count=len(fields),
+            merge_type="Text/Comma/Line1Keys",
+        )
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_returns_summary_format(self, mock_list, client):
+        """GET /templates should return TemplateSummary (no fields/format_type/merge_type)."""
+        mock_list.return_value = [
+            self._make_template_info("demo.glabels", True),
+            self._make_template_info("non_head_demo.glabels", False),
+        ]
+
+        response = client.get("/labels/templates")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
+        # TemplateSummary fields only
+        for item in data:
+            assert "name" in item
+            assert "field_count" in item
+            assert "has_headers" in item
+            # TemplateInfo-only fields must NOT appear
+            assert "fields" not in item
+            assert "format_type" not in item
+            assert "merge_type" not in item
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_limit_param(self, mock_list, client):
+        """GET /templates?limit=1 should return at most 1 template."""
+        mock_list.return_value = [
+            self._make_template_info("a.glabels"),
+            self._make_template_info("b.glabels"),
+            self._make_template_info("c.glabels"),
+        ]
+
+        response = client.get("/labels/templates?limit=1")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_limit_zero_returns_all(self, mock_list, client):
+        """GET /templates?limit=0 should return all templates."""
+        templates = [self._make_template_info(f"t{i}.glabels") for i in range(5)]
+        mock_list.return_value = templates
+
+        response = client.get("/labels/templates?limit=0")
+        assert response.status_code == 200
+        assert len(response.json()) == 5
+
+    @patch("app.services.template_service.TemplateService.get_template_info")
+    def test_get_template_detail_returns_full_info(self, mock_get, client):
+        """GET /templates/{name} should return full TemplateInfo with fields."""
+        mock_get.return_value = self._make_template_info()
+
+        response = client.get("/labels/templates/demo.glabels")
+        assert response.status_code == 200
+        data = response.json()
+        assert "fields" in data
+        assert "format_type" in data
+        assert "merge_type" in data
+        assert data["fields"] == ["CODE", "ITEM"]
+
+    @patch("app.services.template_service.TemplateService.get_template_info")
+    def test_get_template_detail_not_found(self, mock_get, client):
+        """GET /templates/{name} should return 404 for missing template."""
+        mock_get.side_effect = FileNotFoundError("not found")
+
+        response = client.get("/labels/templates/missing.glabels")
+        assert response.status_code == 404
 
 
 class TestSSEEndpoint:
