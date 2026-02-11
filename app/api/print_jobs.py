@@ -536,8 +536,6 @@ async def list_templates(limit: int = 100) -> list[TemplateSummary]:
     """
     List all available gLabels templates with summary information.
 
-    ## Response Fields (v2.0.0+)
-
     **Lightweight summary for efficient listing:**
 
     | Field | Type | Description |
@@ -601,7 +599,7 @@ async def list_templates(limit: int = 100) -> list[TemplateSummary]:
     summary="Get detailed template information",
     responses={
         200: {
-            "description": "Detailed template information (v2.0.0+)",
+            "description": "Detailed template information",
             "content": {
                 "application/json": {
                     "example": {
@@ -628,8 +626,6 @@ async def get_template_info(template_name: str) -> TemplateInfo:
     | Parameter | Type | Required | Description |
     |-----------|------|----------|-------------|
     | `template_name` | string | Yes | Template filename (e.g., `"demo.glabels"`) |
-
-    ## Response Fields (v2.0.0+)
 
     **Complete template metadata:**
 

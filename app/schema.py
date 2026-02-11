@@ -136,7 +136,7 @@ class JobStatusResponse(BaseModel):
 
 class TemplateSummary(BaseModel):
     """
-    Lightweight template summary for list endpoints (v2.0.0+).
+    Lightweight template summary for list endpoints.
     Used in GET /templates for compact listing with pagination support.
     """
 
@@ -159,7 +159,7 @@ class TemplateSummary(BaseModel):
 
 class TemplateInfo(BaseModel):
     """
-    Detailed template information for GET /templates/{template_name} endpoint (v2.0.0+).
+    Detailed template information for GET /templates/{template_name} endpoint.
     Returns comprehensive metadata including all fields and format information.
     """
 
