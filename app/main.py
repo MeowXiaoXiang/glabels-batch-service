@@ -24,11 +24,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.responses import Response
 
+from app import SERVICE_NAME, VERSION
 from app.api import print_jobs
 from app.config import settings
 from app.core.limiter import limiter
 from app.core.logger import setup_logger
-from app.core.version import SERVICE_NAME, VERSION
 from app.services.job_manager import JobManager
 
 # Custom Prometheus gauges (business metrics)

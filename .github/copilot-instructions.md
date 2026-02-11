@@ -11,7 +11,7 @@ FastAPI microservice wrapping gLabels CLI: **JSON → CSV → gLabels Template �
 
 Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEngine`
 
-**Version**: see `app/core/version.py` (`VERSION`, `SERVICE_NAME` = `gLabels Batch Service`)
+**Version**: see `app/__init__.py` (`VERSION` from `importlib.metadata`, `SERVICE_NAME` = `gLabels Batch Service`)
 
 ## Key Files
 
@@ -26,6 +26,7 @@ Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEn
 | `app/parsers/__init__.py` | Parser factory (`get_parser()`) |
 | `app/parsers/base_parser.py` | Abstract base class for template parsers |
 | `app/parsers/csv_parser.py` | CSV format parser (header/no-header) |
+| `app/__init__.py` | Package metadata: `VERSION` (from pyproject.toml via importlib.metadata), `SERVICE_NAME` |
 | `app/schema.py` | Pydantic models and validation |
 | `app/api/print_jobs.py` | All `/labels/*` endpoints |
 | `app/config.py` | pydantic-settings, all env vars |
