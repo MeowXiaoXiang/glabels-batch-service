@@ -378,6 +378,24 @@ class TestTemplateEndpoints:
         response = client.get("/labels/templates/missing.glabels")
         assert response.status_code == 404
 
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_internal_error_sanitized(self, mock_list, client):
+        """GET /templates should not leak internal exception details."""
+        mock_list.side_effect = RuntimeError("db password leaked")
+
+        response = client.get("/labels/templates")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to read templates"
+
+    @patch("app.services.template_service.TemplateService.get_template_info")
+    def test_get_template_detail_internal_error_sanitized(self, mock_get, client):
+        """GET /templates/{name} should not leak internal exception details."""
+        mock_get.side_effect = RuntimeError("sensitive stack trace")
+
+        response = client.get("/labels/templates/demo.glabels")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to read template"
+
 
 class TestSSEEndpoint:
     """Tests for Server-Sent Events streaming endpoint"""

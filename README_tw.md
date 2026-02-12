@@ -38,24 +38,17 @@ http://localhost:8000/docs
 
 ### Docker（推薦）
 
-```bash
-# 開發環境（啟用熱重載）
-docker compose up -d
-
-# 正式環境
-docker compose -f compose.prod.yml up -d
-```
-
 說明：
 
-- `compose.yml` 只會讀取 `.env`，不再覆蓋任何設定。要改 `LOG_FORMAT` 等設定請直接改 `.env`。
-- 若沒有 `.env`，容器會無法啟動，請先從 `.env.example` 複製。
+- Docker 部署使用 `compose.yml`。
+- 若沒有 `.env`，請先由 `.env.example` 複製。
+- 啟動指令請參考上方「快速開始」。
 
 ### 原生安裝（Linux/WSL）
 
 ```bash
 # 安裝依賴
-sudo apt-get install glabels glabels-data
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
 pip install -r requirements.txt
 
 # 執行
@@ -192,71 +185,28 @@ curl http://localhost:8000/labels/templates
 
 設定按以下順序載入（後者覆蓋前者）：
 
-1. `app/config.py` 預設值
-2. `.env` 檔案（開發環境）
-3. 系統環境變數（正式環境建議）
+1. 系統環境變數
+2. `.env` 檔案
+3. `app/config.py` 預設值
 
-### 環境檔案說明
-
-| 檔案 | 用途 | 是否提交至 Git？ |
-|------|------|-----------------|
-| `.env.example` | 開發環境模板 | 是 |
-| `.env.production.example` | 正式環境模板 | 是 |
-| `.env` | 開發環境設定 | 否 |
-| `.env.production` | 正式環境設定 | 否 |
-
-> **安全提醒**：絕不將包含實際值的 `.env` 或 `.env.production` 提交至版本控制。
+> **安全提醒**：絕不將包含實際值的 `.env` 提交至版本控制。
 
 ---
 
 ## 正式環境部署
 
-### 使用 Docker Compose（推薦）
+本專案以內網部署為主。正式環境建議使用以下兩種流程：
+
+1. 由 Linux service 指定環境變數（`Environment=` / `EnvironmentFile=`）。
+2. 先匯入 `.env`，再啟動服務（減少手動輸入）。
+
+接著使用 Docker Compose 啟動：
 
 ```bash
-# 1. 設定環境變數
-export ENVIRONMENT=production
-export LOG_LEVEL=WARNING
-export RELOAD=false
-export MAX_PARALLEL=4
-
-# 2. 啟動服務
-docker compose -f compose.prod.yml up -d
-
-# 3. 檢查狀態
-docker compose -f compose.prod.yml ps
-docker compose -f compose.prod.yml logs -f
+docker compose up -d
+docker compose ps
+docker compose logs -f
 ```
-
-### 使用 Docker Run
-
-```bash
-docker build -t glabels-batch-service:latest .
-
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  -e ENVIRONMENT=production \
-  -e RELOAD=false \
-  -e LOG_LEVEL=WARNING \
-  -v /data/output:/app/output \
-  -v /data/templates:/app/templates \
-  -v /data/logs:/app/logs \
-  --restart always \
-  glabels-batch-service:latest
-```
-
-### 部署檢查清單
-
-- [ ] `ENVIRONMENT=production`
-- [ ] `RELOAD=false`（必須，否則啟動會失敗）
-- [ ] `LOG_LEVEL=WARNING` 或 `ERROR`
-- [ ] `KEEP_CSV=false`（節省磁碟空間）
-- [ ] 設定資源限制（CPU/記憶體）
-- [ ] 設定磁碟區掛載（`/app/output`、`/app/templates`、`/app/logs`）
-- [ ] 設定健康檢查監控（`/health` 端點）
-- [ ] 備份策略（定期備份 `templates/` 和 `output/`）
-- [ ] 不要將 `.env.production` 提交至 git
 
 ### 使用 nginx（反向代理）
 
@@ -314,20 +264,13 @@ server {
 ```
 
 **關鍵設定點**：
+
 - `proxy_buffering off` — SSE 正常運作的必要條件
 - `proxy_read_timeout 3600s` — 允許最多 1 小時的長期運行任務
 - `proxy_http_version 1.1` — 連線重用的必要條件
 - `Connection ""` — 防止 nginx 加入 `Connection: close`
 
 > **提示**：若使用 SSL/TLS，請確保 `proxy_set_header X-Forwarded-Proto $scheme;` 被設定，以便應用知道它在 HTTPS 後方運行。
-
-> **Linux 主機**：容器以 UID 1000 執行，請確保掛載目錄有寫入權限：
->
-> ```bash
-> sudo chown -R 1000:1000 ./output ./logs ./templates
-> ```
->
-> Docker Desktop（Windows/Mac）會自動處理權限，無需額外操作。
 
 ---
 

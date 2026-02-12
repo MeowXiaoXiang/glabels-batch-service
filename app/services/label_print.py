@@ -267,6 +267,13 @@ class LabelPrintService:
                     f"[LabelPrint] job_id={job_id} failed after {duration:.2f}s "
                     f"(rc={e.returncode})\n{e.stderr}"
                 )
+                if e.stdout:
+                    stdout_chunk = (
+                        (e.stdout[:1024] + "...") if len(e.stdout) > 1024 else e.stdout
+                    )
+                    logger.debug(
+                        f"[LabelPrint] job_id={job_id} glabels stdout:\n{stdout_chunk}"
+                    )
                 truncated_stderr = (
                     (e.stderr[:1024] + "...") if len(e.stderr) > 1024 else e.stderr
                 )
@@ -327,7 +334,12 @@ class LabelPrintService:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             errors = [r for r in results if isinstance(r, Exception)]
             if errors:
-                raise errors[0]
+                summarized = "; ".join(str(err) for err in errors[:3])
+                if len(errors) > 3:
+                    summarized += f"; ... (+{len(errors) - 3} more)"
+                raise RuntimeError(
+                    f"{len(errors)}/{num_batches} batch(es) failed: {summarized}"
+                )
             batch_pdfs = [r for r in results if isinstance(r, Path)]
 
             # Merge all batch PDFs

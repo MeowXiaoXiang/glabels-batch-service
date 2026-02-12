@@ -43,22 +43,11 @@ http://localhost:8000/docs
 
 ### Docker (Recommended)
 
-**Development (with hot reload):**
-
-```bash
-docker compose up -d
-```
-
 Notes:
 
-- `compose.yml` only loads `.env` and does not override values. Update `.env` to change settings like `LOG_FORMAT`.
-- Missing `.env` will fail to start the container. Copy from `.env.example` first.
-
-**Production:**
-
-```bash
-docker compose -f compose.prod.yml up -d
-```
+- Docker deployment uses `compose.yml`.
+- If `.env` is missing, copy from `.env.example` first.
+- For startup commands, see **Quick Start** above.
 
 ### Native Installation (Linux/WSL only)
 
@@ -79,45 +68,18 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Production Deployment
 
-### Using Docker Compose (Recommended)
+This project is internal-first. For production, use one of these two flows:
+
+1. Define environment variables directly in Linux service (`Environment=` / `EnvironmentFile=`).
+2. Import `.env` before starting the service if you prefer fewer typed variables.
+
+Then start the service with Docker Compose:
 
 ```bash
-# Set environment variables
-export ENVIRONMENT=production
-export LOG_LEVEL=WARNING
-export MAX_PARALLEL=4
-
-# Start service
-docker compose -f compose.prod.yml up -d
+docker compose up -d
+docker compose ps
+docker compose logs -f
 ```
-
-### Using Docker Run
-
-```bash
-docker build -t glabels-batch-service:latest .
-
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  -e ENVIRONMENT=production \
-  -e RELOAD=false \
-  -e LOG_LEVEL=WARNING \
-  -v /data/output:/app/output \
-  -v /data/templates:/app/templates \
-  -v /data/logs:/app/logs \
-  --restart always \
-  glabels-batch-service:latest
-```
-
-### Production Checklist
-
-- [ ] `ENVIRONMENT=production`
-- [ ] `RELOAD=false` (critical - validation will fail if true)
-- [ ] `LOG_LEVEL=WARNING` or `ERROR`
-- [ ] Volume mounts configured properly
-- [ ] Health monitoring on `/health` endpoint
-- [ ] Resource limits set
-- [ ] Never commit `.env.production` to git
 
 ### Using with nginx (Reverse Proxy)
 
@@ -183,14 +145,6 @@ server {
 
 > **Tip**: If using SSL/TLS, ensure `proxy_set_header X-Forwarded-Proto $scheme;` is set so the app knows it's behind HTTPS.
 
-> **Linux hosts**: The container runs as UID 1000. Ensure mounted directories are writable:
->
-> ```bash
-> sudo chown -R 1000:1000 ./output ./logs ./templates
-> ```
->
-> Docker Desktop (Windows/Mac) handles permissions automatically — no action needed.
-
 ---
 
 ## Configuration
@@ -224,20 +178,11 @@ Copy `.env.example` to `.env` and adjust:
 
 ### Configuration Priority
 
-1. Default values in `app/config.py`
-2. `.env` file (development)
-3. System environment variables (production - recommended)
+1. System environment variables
+2. `.env` file
+3. Default values in `app/config.py`
 
-### Environment Files
-
-| File | Purpose | Commit? |
-|------|---------|---------|
-| `.env.example` | Development template | Yes |
-| `.env.production.example` | Production template | Yes |
-| `.env` | Development config | No |
-| `.env.production` | Production config | No |
-
-> **Security**: Never commit `.env` or `.env.production` to version control.
+> **Security**: Never commit `.env` with real values to version control.
 
 ---
 

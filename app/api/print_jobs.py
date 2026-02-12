@@ -587,9 +587,7 @@ async def list_templates(limit: int = 100) -> list[TemplateSummary]:
         return summaries
     except Exception as e:
         logger.error(f"[API] Failed to list templates: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to read templates: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to read templates")
 
 
 # Get Specific Template Information (Detailed)
@@ -685,6 +683,4 @@ async def get_template_info(template_name: str) -> TemplateInfo:
         )
     except Exception as e:
         logger.error(f"[API] Failed to get template info {template_name}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to read template: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to read template")

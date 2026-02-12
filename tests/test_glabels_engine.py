@@ -13,6 +13,7 @@ Covers:
 """
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -78,6 +79,33 @@ class TestGlabelsEngine:
         with pytest.raises(GlabelsExecutionError) as e:
             await engine.run_batch(output_pdf=out, template_path=tpl, csv_path=csv)
         assert "bad template" in e.value.stderr
+        assert e.value.stdout == ""
+
+    @pytest.mark.asyncio
+    async def test_run_batch_failure_keeps_stdout(self, monkeypatch, tmp_path):
+        """Should preserve stdout on failure for easier diagnosis."""
+        tpl = tmp_path / "demo.glabels"
+        csv = tmp_path / "demo.csv"
+        out = tmp_path / "out.pdf"
+        tpl.write_text("dummy")
+        csv.write_text("x")
+
+        class DummyProc:
+            returncode = 2
+
+            async def communicate(self):
+                return b"warning from glabels", b"error: bad template"
+
+        async def fake_exec(*a, **k):
+            return DummyProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        engine = GlabelsEngine()
+        with pytest.raises(GlabelsExecutionError) as e:
+            await engine.run_batch(output_pdf=out, template_path=tpl, csv_path=csv)
+        assert "warning from glabels" in e.value.stdout
+        assert "bad template" in e.value.stderr
 
     @pytest.mark.asyncio
     async def test_file_not_found(self, tmp_path):
@@ -87,6 +115,24 @@ class TestGlabelsEngine:
         out = tmp_path / "out.pdf"
         engine = GlabelsEngine()
         with pytest.raises(FileNotFoundError):
+            await engine.run_batch(output_pdf=out, template_path=tpl, csv_path=csv)
+
+    @pytest.mark.asyncio
+    async def test_binary_not_found_message(self, monkeypatch, tmp_path):
+        """Missing glabels binary should raise a clear FileNotFoundError message."""
+        tpl = tmp_path / "demo.glabels"
+        csv = tmp_path / "demo.csv"
+        out = tmp_path / "out.pdf"
+        tpl.write_text("dummy")
+        csv.write_text("x")
+
+        async def fake_exec(*a, **k):
+            raise FileNotFoundError("no such file")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        engine = GlabelsEngine(glabels_bin=Path("/missing/glabels-3-batch"))
+        with pytest.raises(FileNotFoundError, match="glabels binary not found"):
             await engine.run_batch(output_pdf=out, template_path=tpl, csv_path=csv)
 
     @pytest.mark.asyncio
