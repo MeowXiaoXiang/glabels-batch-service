@@ -105,6 +105,9 @@ class JobManager:
                     logger.info(
                         f"[Worker-{wid}] job_id={job_id} completed -> {filename}"
                     )
+                except asyncio.CancelledError:
+                    # Re-raise CancelledError to allow proper shutdown
+                    raise
                 except Exception as e:
                     job["status"] = "failed"
                     job["error"] = str(e)
