@@ -286,6 +286,7 @@ curl http://localhost:8000/labels/templates
 ### Template Files
 
 - Place `.glabels` template files in `templates/` directory
+- Supported template merge type: CSV/Comma only
 - System automatically discovers and parses field definitions
 - Use `/labels/templates` API to browse available templates (summary); use `/labels/templates/{name}` for detailed field information
 
