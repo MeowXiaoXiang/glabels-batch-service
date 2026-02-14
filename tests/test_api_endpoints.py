@@ -11,8 +11,9 @@ Covers essential API functionality:
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,7 +34,7 @@ class FakeJobManager:
 
     async def submit_job(self, req):
         job_id = "test-job-id"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self.jobs[job_id] = {
             "status": "pending",
             "filename": "test.pdf",
@@ -55,7 +56,6 @@ class FakeJobManager:
 
 
 class TestAPIEndpoints:
-
     @pytest.fixture
     def client(self):
         """Create test client for FastAPI app."""
@@ -130,7 +130,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.post("/labels/print", json=request_data)
         assert response.status_code == 422
 
-    def test_submit_labels_exceeds_field_length(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_field_length(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject fields exceeding MAX_FIELD_LENGTH."""
         monkeypatch.setattr("app.schema.settings.MAX_FIELD_LENGTH", 5)
         request_data = {
@@ -141,7 +143,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.post("/labels/print", json=request_data)
         assert response.status_code == 422
 
-    def test_submit_labels_exceeds_request_bytes(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_request_bytes(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject request body larger than MAX_REQUEST_BYTES."""
         monkeypatch.setattr("app.api.print_jobs.settings.MAX_REQUEST_BYTES", 10)
         request_data = {
@@ -156,7 +160,9 @@ class TestAPIEndpoints:
         )
         assert response.status_code == 413
 
-    def test_submit_labels_exceeds_max_labels(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_max_labels(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject when label count exceeds MAX_LABELS_PER_JOB."""
         monkeypatch.setattr("app.schema.settings.MAX_LABELS_PER_JOB", 2)
         request_data = {
@@ -171,7 +177,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.post("/labels/print", json=request_data)
         assert response.status_code == 422
 
-    def test_submit_labels_exceeds_field_count(self, client_with_fake_manager, monkeypatch):
+    def test_submit_labels_exceeds_field_count(
+        self, client_with_fake_manager, monkeypatch
+    ):
         """Should reject when field count exceeds MAX_FIELDS_PER_LABEL."""
         monkeypatch.setattr("app.schema.settings.MAX_FIELDS_PER_LABEL", 1)
         request_data = {
@@ -191,7 +199,7 @@ class TestAPIEndpoints:
     def test_list_jobs_with_limit(self, client_with_fake_manager):
         """Should respect limit when listing jobs."""
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(3):
             jm.jobs[f"job-{i}"] = {
                 "status": "done",
@@ -211,7 +219,7 @@ class TestAPIEndpoints:
     def test_download_job_not_done(self, client_with_fake_manager):
         """Should return 409 when job is not done."""
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jm.jobs["pending-job"] = {
             "status": "pending",
             "filename": "pending.pdf",
@@ -226,7 +234,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.get("/labels/jobs/pending-job/download")
         assert response.status_code == 409
 
-    def test_download_job_success(self, client_with_fake_manager, tmp_path, monkeypatch):
+    def test_download_job_success(
+        self, client_with_fake_manager, tmp_path, monkeypatch
+    ):
         """Should download PDF when job is done and file exists."""
         monkeypatch.chdir(tmp_path)
         output_dir = Path("output")
@@ -235,7 +245,7 @@ class TestAPIEndpoints:
         pdf_path.write_text("pdf")
 
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jm.jobs["done-job"] = {
             "status": "done",
             "filename": "done.pdf",
@@ -250,7 +260,9 @@ class TestAPIEndpoints:
         response = client_with_fake_manager.get("/labels/jobs/done-job/download")
         assert response.status_code == 200
 
-    def test_download_job_preview_inline(self, client_with_fake_manager, tmp_path, monkeypatch):
+    def test_download_job_preview_inline(
+        self, client_with_fake_manager, tmp_path, monkeypatch
+    ):
         """Should return inline Content-Disposition when preview=true."""
         monkeypatch.chdir(tmp_path)
         output_dir = Path("output")
@@ -259,7 +271,7 @@ class TestAPIEndpoints:
         pdf_path.write_text("pdf")
 
         jm = app.state.job_manager
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jm.jobs["done-job"] = {
             "status": "done",
             "filename": "done.pdf",
@@ -271,9 +283,118 @@ class TestAPIEndpoints:
             "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
         }
 
-        response = client_with_fake_manager.get("/labels/jobs/done-job/download?preview=true")
+        response = client_with_fake_manager.get(
+            "/labels/jobs/done-job/download?preview=true"
+        )
         assert response.status_code == 200
         assert response.headers.get("content-disposition", "").startswith("inline")
+
+
+class TestTemplateEndpoints:
+    """Tests for template listing and detail endpoints (v2.0.0 TemplateSummary)"""
+
+    @pytest.fixture
+    def client(self):
+        with TestClient(app) as client:
+            yield client
+
+    def _make_template_info(self, name="demo.glabels", has_headers=True):
+        from app.schema import TemplateInfo
+
+        fields = ["CODE", "ITEM"] if has_headers else ["1", "2"]
+        return TemplateInfo(
+            name=name,
+            format_type="CSV",
+            has_headers=has_headers,
+            fields=fields,
+            field_count=len(fields),
+            merge_type="Text/Comma/Line1Keys",
+        )
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_returns_summary_format(self, mock_list, client):
+        """GET /templates should return TemplateSummary (no fields/format_type/merge_type)."""
+        mock_list.return_value = [
+            self._make_template_info("demo.glabels", True),
+            self._make_template_info("non_head_demo.glabels", False),
+        ]
+
+        response = client.get("/labels/templates")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
+        # TemplateSummary fields only
+        for item in data:
+            assert "name" in item
+            assert "field_count" in item
+            assert "has_headers" in item
+            # TemplateInfo-only fields must NOT appear
+            assert "fields" not in item
+            assert "format_type" not in item
+            assert "merge_type" not in item
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_limit_param(self, mock_list, client):
+        """GET /templates?limit=1 should return at most 1 template."""
+        mock_list.return_value = [
+            self._make_template_info("a.glabels"),
+            self._make_template_info("b.glabels"),
+            self._make_template_info("c.glabels"),
+        ]
+
+        response = client.get("/labels/templates?limit=1")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_limit_zero_returns_all(self, mock_list, client):
+        """GET /templates?limit=0 should return all templates."""
+        templates = [self._make_template_info(f"t{i}.glabels") for i in range(5)]
+        mock_list.return_value = templates
+
+        response = client.get("/labels/templates?limit=0")
+        assert response.status_code == 200
+        assert len(response.json()) == 5
+
+    @patch("app.services.template_service.TemplateService.get_template_info")
+    def test_get_template_detail_returns_full_info(self, mock_get, client):
+        """GET /templates/{name} should return full TemplateInfo with fields."""
+        mock_get.return_value = self._make_template_info()
+
+        response = client.get("/labels/templates/demo.glabels")
+        assert response.status_code == 200
+        data = response.json()
+        assert "fields" in data
+        assert "format_type" in data
+        assert "merge_type" in data
+        assert data["fields"] == ["CODE", "ITEM"]
+
+    @patch("app.services.template_service.TemplateService.get_template_info")
+    def test_get_template_detail_not_found(self, mock_get, client):
+        """GET /templates/{name} should return 404 for missing template."""
+        mock_get.side_effect = FileNotFoundError("not found")
+
+        response = client.get("/labels/templates/missing.glabels")
+        assert response.status_code == 404
+
+    @patch("app.services.template_service.TemplateService.list_templates")
+    def test_list_templates_internal_error_sanitized(self, mock_list, client):
+        """GET /templates should not leak internal exception details."""
+        mock_list.side_effect = RuntimeError("db password leaked")
+
+        response = client.get("/labels/templates")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to read templates"
+
+    @patch("app.services.template_service.TemplateService.get_template_info")
+    def test_get_template_detail_internal_error_sanitized(self, mock_get, client):
+        """GET /templates/{name} should not leak internal exception details."""
+        mock_get.side_effect = RuntimeError("sensitive stack trace")
+
+        response = client.get("/labels/templates/demo.glabels")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to read template"
 
 
 class TestSSEEndpoint:
@@ -306,9 +427,9 @@ class TestSSEEndpoint:
             "filename": "test.pdf",
             "template": "demo.glabels",
             "error": None,
-            "created_at": datetime.now(timezone.utc),
-            "started_at": datetime.now(timezone.utc),
-            "finished_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "started_at": datetime.now(UTC),
+            "finished_at": datetime.now(UTC),
             "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
         }
 
@@ -334,9 +455,9 @@ class TestSSEEndpoint:
             "filename": "failed_job.pdf",  # filename is set even for failed jobs
             "template": "demo.glabels",
             "error": "Test error message",
-            "created_at": datetime.now(timezone.utc),
-            "started_at": datetime.now(timezone.utc),
-            "finished_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "started_at": datetime.now(UTC),
+            "finished_at": datetime.now(UTC),
             "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
         }
 

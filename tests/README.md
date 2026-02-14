@@ -1,116 +1,81 @@
 # Test Suite
 
-Essential unit tests for the glabels-batch-service project, focusing on core functionality and business logic.
+Unit tests for glabels-batch-service, focusing on core functionality and business logic.
 
 ## Quick Start
 
 ```bash
 # Run all tests
-pytest tests/
+pytest tests/ -v
 
-# Run specific test file
-pytest tests/test_glabels_engine.py -v
-
-# Run with coverage
+# With coverage
 pytest tests/ --cov=app --cov-report=html
+
+# Specific test
+pytest tests/test_glabels_engine.py -v
 ```
 
-## Test Files Overview
+## Test Coverage: 76 Tests
 
 | Test File | Tests | Purpose |
 |-----------|-------|---------|
-| `test_glabels_engine.py` | 7 | Core CLI wrapper functionality |
-| `test_job_manager.py` | 7 | Job lifecycle and worker management |
-| `test_template_service.py` | 6 | Template discovery and parsing |
+| `test_glabels_engine.py` | 7 | CLI wrapper and subprocess handling |
+| `test_job_manager.py` | 8 | Job lifecycle and worker management |
+| `test_template_service.py` | 7 | Template discovery and parsing |
+| `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
+| `test_api_endpoints.py` | 22 | API validation, template endpoints, error handling |
+| `test_cpu_detect.py` | 12 | Container-aware CPU detection (cgroup v2/v1) |
 | `test_integration.py` | 4 | End-to-end workflows |
-| `test_api_endpoints.py` | 11 | API endpoints and validation |
-| `test_label_print.py` | 16 | Label print service behavior |
 
-## Total: 51 focused tests
+## Key Test Areas
 
-## What Each Test Covers
+### GlabelsEngine (`test_glabels_engine.py`)
 
-### `test_glabels_engine.py`
+- Successful PDF generation via CLI
+- Error handling and timeout scenarios
+- Missing file detection
+- Output truncation for long errors
 
-Tests the CLI wrapper that executes gLabels commands:
-
-- Successful PDF generation
-- Command failures and error handling
-- Timeout scenarios
-- Missing files detection
-- Long error output truncation
-
-### `test_job_manager.py`
-
-Tests asynchronous job processing:
+### JobManager (`test_job_manager.py`)
 
 - Job submission and queuing
-- Job completion tracking
-- Error propagation and failure handling
-- Automatic cleanup of old jobs
-- Job status and listing
+- Async worker processing
+- Job completion and failure tracking
+- Automatic cleanup (retention policy)
 
-### `test_template_service.py`
-
-Tests template file management:
+### TemplateService (`test_template_service.py`)
 
 - Template discovery in directories
-- Template info extraction
-- Format detection (CSV/TSV detection)
-- Error handling for invalid templates
-- Missing directory handling
+- Field extraction from `.glabels` files
+- Format detection (CSV/TSV)
+- Invalid template handling
 
-### `test_integration.py`
+### LabelPrintService (`test_label_print.py`)
 
-Tests end-to-end workflows:
+- JSON to CSV conversion
+- Field ordering consistency
+- Batch splitting (respects `MAX_LABELS_PER_BATCH`)
+- PDF merging for multi-batch jobs
+- Temporary file cleanup
 
-- Template discovery workflow
-- Template info retrieval process
-- Job manager integration
-- Error propagation across components
+### API Endpoints (`test_api_endpoints.py`)
 
-### `test_api_endpoints.py`
+- Request validation (template name, data format)
+- Template list returns TemplateSummary format (no detail fields)
+- Template detail returns full TemplateInfo with fields
+- Template limit parameter behavior
+- Error responses (404, 409, 410)
+- Schema validation
 
-Tests API endpoints and validation:
+### Integration Tests (`test_integration.py`)
 
-- Invalid template name rejection
-
-### `test_label_print.py`
-
-Tests label print service behavior:
-
-- CSV generation and field ordering
-- Batch splitting and PDF merging
-- Cleanup of temporary files
+- Full workflow: template → job → PDF
+- Component interaction
+- Error propagation
 
 ## Testing Philosophy
 
-This test suite follows a **focused testing** approach:
-
-- **Test business logic**, not framework features
-- **Mock external dependencies** (filesystem, subprocess, network)
-- **Fast execution** - complete suite runs in under 1 second
-- **Easy maintenance** - tests focus on critical functionality
-
-## Test Execution Tips
-
-```bash
-# Run all tests (recommended)
-pytest tests/
-
-# Run with detailed output
-pytest tests/ -v
-
-# Run specific component
-pytest tests/test_job_manager.py
-
-# Run with coverage
-pytest tests/ --cov=app
-```
-
-## Development Notes
-
-- Tests use extensive mocking to isolate components
-- Integration tests verify end-to-end workflows
-- Focus is on core business logic validation
-- External dependencies are mocked for reliability
+- **Fast execution**: Complete suite runs in <1 second
+- **Mock external dependencies**: Filesystem, subprocess, network
+- **Test business logic**: Focus on critical functionality, not framework features
+- **Easy maintenance**: Clear test names and focused assertions

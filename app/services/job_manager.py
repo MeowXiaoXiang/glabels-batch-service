@@ -5,36 +5,38 @@
 # - debug logs: worker start, job execution, cleanup
 
 import asyncio
-import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
 from app.config import settings
 from app.schema import LabelRequest
 from app.services.label_print import LabelPrintService
+from app.utils.cpu_detect import get_available_cpus
 
 
 class JobManager:
-    def __init__(self):
+    def __init__(self) -> None:
         # All job states (in-memory)
-        self.jobs: Dict[str, Dict[str, Any]] = {}
+        self.jobs: dict[str, dict[str, Any]] = {}
         # Async queue for job scheduling
-        self.queue: asyncio.Queue = asyncio.Queue()
+        self.queue: asyncio.Queue[tuple[str, LabelRequest, str]] = asyncio.Queue()
         # Worker task list
-        self.workers: List[asyncio.Task] = []
+        self.workers: list[asyncio.Task[None]] = []
         # Scheduled cleanup task
-        self.cleanup_task: Optional[asyncio.Task] = None
+        self.cleanup_task: asyncio.Task[None] | None = None
 
         # Counter: total submitted jobs (lifetime, reset on restart)
         self.jobs_total: int = 0
 
         # Determine max concurrency
+        # get_available_cpus() reads cgroup limits inside containers,
+        # falling back to os.cpu_count() on bare-metal / non-Linux.
         if settings.MAX_PARALLEL in (0, None):
-            self.max_parallel = max(1, (os.cpu_count() or 2) - 1)
+            self.max_parallel = max(1, get_available_cpus() - 1)
         else:
             self.max_parallel = int(settings.MAX_PARALLEL)
 
@@ -53,11 +55,11 @@ class JobManager:
     # --------------------------------------------------------
     def _make_job(
         self, req: LabelRequest, job_id: str, filename: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create initial job record (pending status).
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return {
             "status": "pending",
             "filename": filename,  # output filename (PDF)
@@ -72,7 +74,7 @@ class JobManager:
     # --------------------------------------------------------
     # Worker loop
     # --------------------------------------------------------
-    async def _worker(self, wid: int):
+    async def _worker(self, wid: int) -> None:
         """
         Worker loop:
         - Dequeue job
@@ -85,7 +87,7 @@ class JobManager:
                 job_id, req, filename = await self.queue.get()
                 job = self.jobs[job_id]
                 job["status"] = "running"
-                job["started_at"] = datetime.now(timezone.utc)
+                job["started_at"] = datetime.now(UTC)
 
                 logger.debug(
                     f"[Worker-{wid}] START job_id={job_id}, template={req.template_name}"
@@ -103,12 +105,15 @@ class JobManager:
                     logger.info(
                         f"[Worker-{wid}] job_id={job_id} completed -> {filename}"
                     )
+                except asyncio.CancelledError:
+                    # Re-raise CancelledError to allow proper shutdown
+                    raise
                 except Exception as e:
                     job["status"] = "failed"
                     job["error"] = str(e)
                     logger.exception(f"[Worker-{wid}] job_id={job_id} failed")
                 finally:
-                    job["finished_at"] = datetime.now(timezone.utc)
+                    job["finished_at"] = datetime.now(UTC)
                     self.queue.task_done()
                     self._cleanup_jobs()
         except asyncio.CancelledError:
@@ -118,12 +123,12 @@ class JobManager:
     # --------------------------------------------------------
     # Cleanup expired jobs and PDFs
     # --------------------------------------------------------
-    def _cleanup_jobs(self):
+    def _cleanup_jobs(self) -> None:
         """
         Cleanup expired job records and scan output/ to delete old PDFs.
         Uses file modification time to handle orphaned files as well.
         """
-        cutoff = datetime.now(timezone.utc) - self.retention
+        cutoff = datetime.now(UTC) - self.retention
 
         # 1. Cleanup expired job records from memory (only finished jobs)
         old_jobs = [
@@ -152,7 +157,7 @@ class JobManager:
     # --------------------------------------------------------
     # Scheduled cleanup (runs every hour)
     # --------------------------------------------------------
-    async def _cleanup_scheduler(self):
+    async def _cleanup_scheduler(self) -> None:
         """
         Background task that runs cleanup periodically.
         Ensures expired jobs and PDFs are removed even when idle.
@@ -169,7 +174,7 @@ class JobManager:
     # --------------------------------------------------------
     # Worker pool management
     # --------------------------------------------------------
-    def start_workers(self):
+    def start_workers(self) -> None:
         """
         Start all workers and scheduled cleanup task.
         """
@@ -186,10 +191,17 @@ class JobManager:
 
         logger.info(f"[JobManager] started with {self.max_parallel} workers")
 
-    async def stop_workers(self):
+    async def stop_workers(self) -> None:
         """
         Stop all workers and cleanup scheduler.
         """
+        # Drain queue before shutdown (best effort)
+        try:
+            await asyncio.wait_for(self.queue.join(), timeout=settings.SHUTDOWN_TIMEOUT)
+            logger.info("[JobManager] queue drained before shutdown")
+        except TimeoutError:
+            logger.warning("[JobManager] shutdown timeout reached, canceling workers")
+
         # Stop cleanup scheduler
         if self.cleanup_task:
             self.cleanup_task.cancel()
@@ -227,13 +239,13 @@ class JobManager:
         )
         return job_id
 
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
         """
         Retrieve a single job by job_id.
         """
         return self.jobs.get(job_id)
 
-    def list_jobs(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def list_jobs(self, limit: int = 10) -> list[dict[str, Any]]:
         """
         List the most recent N jobs.
         """

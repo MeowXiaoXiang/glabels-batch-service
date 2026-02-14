@@ -93,9 +93,16 @@ dmypy.json
 # =======================================================
 # FastAPI / Web Framework
 # =======================================================
-# Environment variables (keep .env as template, ignore local variants)
+# Environment files with real values
 .env
-!.env.template
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# Keep templates (example files)
+!.env.example
+!.env.*.example
 
 # =======================================================
 # Application-specific (labels-service)
@@ -120,7 +127,6 @@ logs/
 # =======================================================
 # Docker override files
 docker-compose.override.yml
-.dockerignore
 
 # =======================================================
 # IDE & Editor

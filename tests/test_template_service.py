@@ -19,7 +19,6 @@ from app.services.template_service import TemplateService
 
 
 class TestTemplateService:
-
     @pytest.fixture
     def service(self):
         """Create TemplateService instance for testing."""
@@ -78,10 +77,16 @@ class TestTemplateService:
         assert templates == []
 
     @patch("app.services.template_service.Path.exists")
+    @patch("app.services.template_service.Path.is_file")
+    @patch("app.services.template_service.Path.stat")
     @patch("app.parsers.get_parser")
-    def test_get_template_info_success(self, mock_get_parser, mock_exists, service):
+    def test_get_template_info_success(
+        self, mock_get_parser, mock_stat, mock_is_file, mock_exists, service
+    ):
         """Should get template information successfully."""
         mock_exists.return_value = True
+        mock_is_file.return_value = True
+        mock_stat.return_value = Mock(st_mtime=1000.0)
 
         # Mock parser
         mock_parser = Mock()
@@ -103,6 +108,93 @@ class TestTemplateService:
             mock_parser.parse_template_info.assert_called_once()
 
     @patch("app.services.template_service.Path.exists")
+    @patch("app.services.template_service.Path.is_file")
+    @patch("app.services.template_service.Path.stat")
+    @patch("app.parsers.get_parser")
+    def test_get_template_info_cache_hit(
+        self,
+        mock_get_parser,
+        mock_stat,
+        mock_is_file,
+        mock_exists,
+        service,
+    ):
+        """Should reuse cached TemplateInfo when mtime is unchanged."""
+        mock_exists.return_value = True
+        mock_is_file.return_value = True
+        mock_stat.return_value = Mock(st_mtime=1000.0)
+
+        mock_parser = Mock()
+        expected_info = TemplateInfo(
+            name="demo.glabels",
+            format_type="CSV",
+            has_headers=True,
+            fields=["CODE", "ITEM"],
+            field_count=2,
+            merge_type="Text/Comma/Line1Keys",
+        )
+        mock_parser.parse_template_info.return_value = expected_info
+        mock_get_parser.return_value = mock_parser
+
+        with patch.object(service, "_detect_format", return_value="csv") as mock_detect:
+            result1 = service.get_template_info("demo.glabels")
+            result2 = service.get_template_info("demo.glabels")
+
+        assert result1 == expected_info
+        assert result2 == expected_info
+        assert mock_detect.call_count == 1
+        mock_parser.parse_template_info.assert_called_once()
+
+    @patch("app.parsers.get_parser")
+    def test_get_template_info_cache_invalidate_on_mtime_change(
+        self,
+        mock_get_parser,
+        service,
+    ):
+        """Should refresh cache when template mtime changes."""
+        mock_template_path = Mock(spec=Path)
+        mock_template_path.exists.return_value = True
+        mock_template_path.is_file.return_value = True
+        mock_template_path.stat.side_effect = [
+            Mock(st_mtime=1000.0),
+            Mock(st_mtime=2000.0),
+        ]
+
+        mock_parser = Mock()
+        info_v1 = TemplateInfo(
+            name="demo.glabels",
+            format_type="CSV",
+            has_headers=True,
+            fields=["CODE"],
+            field_count=1,
+            merge_type="Text/Comma/Line1Keys",
+        )
+        info_v2 = TemplateInfo(
+            name="demo.glabels",
+            format_type="CSV",
+            has_headers=True,
+            fields=["CODE", "ITEM"],
+            field_count=2,
+            merge_type="Text/Comma/Line1Keys",
+        )
+        mock_parser.parse_template_info.side_effect = [info_v1, info_v2]
+        mock_get_parser.return_value = mock_parser
+
+        with (
+            patch.object(
+                service, "_resolve_template_path", return_value=mock_template_path
+            ),
+            patch.object(service, "_detect_format", return_value="csv") as mock_detect,
+        ):
+            result1 = service.get_template_info("demo.glabels")
+            result2 = service.get_template_info("demo.glabels")
+
+        assert result1 == info_v1
+        assert result2 == info_v2
+        assert mock_detect.call_count == 2
+        assert mock_parser.parse_template_info.call_count == 2
+
+    @patch("app.services.template_service.Path.exists")
     def test_get_template_info_not_found(self, mock_exists, service):
         """Should raise FileNotFoundError when template doesn't exist."""
         mock_exists.return_value = False
@@ -116,7 +208,7 @@ class TestTemplateService:
             service.get_template_info("../secrets.glabels")
 
     @patch("gzip.open")
-    @patch("xml.etree.ElementTree.fromstring")
+    @patch("defusedxml.ElementTree.fromstring")
     def test_detect_format_csv(self, mock_fromstring, mock_gzip_open, service):
         """Should detect CSV format for comma-based merge types."""
         # Mock XML content
@@ -135,7 +227,7 @@ class TestTemplateService:
         assert result == "csv"
 
     @patch("gzip.open")
-    @patch("xml.etree.ElementTree.fromstring")
+    @patch("defusedxml.ElementTree.fromstring")
     def test_detect_format_unsupported(self, mock_fromstring, mock_gzip_open, service):
         """Should raise ValueError for unsupported merge type."""
         # Mock XML content

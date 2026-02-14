@@ -1,16 +1,28 @@
 # gLabels Batch Service
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.119.0-009688?logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.128.6-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
 ![MIT License](https://img.shields.io/badge/License-MIT-green.svg)
 
-A **FastAPI** microservice that provides REST API for label printing by integrating with **gLabels**.  
-Converts **JSON → CSV → gLabels Template → PDF** with async job processing, parallel execution, timeout handling, and file downloads.
+A **FastAPI** microservice for batch label printing using **gLabels**. Converts **JSON → CSV → gLabels Template → PDF** with async job processing, parallel execution, and timeout handling.
 
 **[中文版本 README](README_tw.md)**
+
+---
+
+## Features
+
+- **Batch Processing**: Convert JSON data to PDF labels in batches
+- **Async Job Queue**: Background task processing with worker pool
+- **Real-time Status**: Server-Sent Events (SSE) for live progress updates
+- **Auto-Batching**: Automatically splits large jobs and merges PDFs
+- **Template Management**: Auto-discovery and parsing of `.glabels` templates
+- **Production Ready**: Docker support, health checks, configurable limits
+
+---
 
 ## Quick Start
 
@@ -18,176 +30,161 @@ Converts **JSON → CSV → gLabels Template → PDF** with async job processing
 # 1. Copy environment template
 cp .env.example .env
 
-# 2. Start with Docker Compose
+# 2. Start service (docker compose reads .env)
 docker compose up -d
 
 # 3. Open API docs
-open http://localhost:8000/docs
+http://localhost:8000/docs
 ```
 
-## Architecture
+---
 
-```text
-Client Request → FastAPI → JobManager → TemplateService → GlabelsEngine → PDF Output
-                              ↓              ↓              ↓
-                         Async Queue    Template Discovery  CLI Wrapper
-```
+## Installation
 
-## Project Structure
+### Docker (Recommended)
 
-```text
-app/
-├── api/           # API routes and endpoints
-├── core/          # Logging and version info
-├── parsers/       # Template format parsers
-├── services/      # Business logic (JobManager, TemplateService)
-├── utils/         # GlabelsEngine CLI wrapper
-├── config.py      # Environment configuration
-├── schema.py      # Pydantic schema models
-└── main.py        # FastAPI application entry point
-```
+Notes:
 
-## Requirements
+- Docker deployment uses `compose.yml`.
+- If `.env` is missing, copy from `.env.example` first.
+- For startup commands, see **Quick Start** above.
 
-- **Linux platform** (gLabels only supports Linux)
-- **Windows users**: Use WSL2 or Docker Desktop
-- Docker & Docker Compose
-- gLabels software (automatically installed in Docker container)
-
-## Docker Setup
-
-### Option 1: Docker Compose (Recommended)
+### Native Installation (Linux/WSL only)
 
 ```bash
-# 1. Copy environment template
-cp .env.example .env
-
-# 2. Build and start
-docker compose up -d
-
-# 3. Check status
-docker compose ps
-docker compose logs -f
-
-# 4. Access API docs
-open http://localhost:8000/docs
-```
-
-### Option 2: Pure Dockerfile
-
-#### Method A: With .env file
-
-```bash
-# 1. Copy environment template and build image
-cp .env.example .env
-docker build -t glabels-batch-service .
-
-# 2. Create directories (adjust paths as needed)
-mkdir -p /path/to/your/output /path/to/your/templates
-# mkdir -p /path/to/your/temp  # Only needed if KEEP_CSV=true in .env
-
-# 3. Run container with .env file
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  --env-file .env \
-  -v /path/to/your/output:/app/output \
-  -v /path/to/your/templates:/app/templates \
-  --restart unless-stopped \
-  glabels-batch-service
-  # Add temp volume only if KEEP_CSV=true:
-  # -v /path/to/your/temp:/app/temp \
-```
-
-#### Method B: With environment parameters
-
-```bash
-# 1. Build image
-docker build -t glabels-batch-service .
-
-# 2. Create directories (adjust paths as needed)
-mkdir -p /path/to/your/output /path/to/your/templates
-# mkdir -p /path/to/your/temp  # Only needed if KEEP_CSV=true
-
-# 3. Run container with environment variables
-docker run -d \
-  --name glabels-batch-service \
-  -p 8000:8000 \
-  -e HOST=0.0.0.0 \
-  -e PORT=8000 \
-  -e LOG_LEVEL=INFO \
-  -e KEEP_CSV=false \
-  -e MAX_PARALLEL=0 \
-  -e GLABELS_TIMEOUT=600 \
-  -e RETENTION_HOURS=24 \
-  -v /path/to/your/output:/app/output \
-  -v /path/to/your/templates:/app/templates \
-  --restart unless-stopped \
-  glabels-batch-service
-  # Add temp volume and set KEEP_CSV=true if you want to retain CSV files:
-  # -e KEEP_CSV=true \
-  # -v /path/to/your/temp:/app/temp \
-
-# 4. Check logs
-docker logs -f glabels-batch-service
-
-# 5. Access API docs
-open http://localhost:8000/docs
-```
-
-**Stop and cleanup:**
-
-```bash
-docker stop glabels-batch-service
-docker rm glabels-batch-service
-```
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and adjust as needed:
-
-```bash
-HOST=0.0.0.0
-PORT=8000
-RELOAD=false
-KEEP_CSV=false
-MAX_PARALLEL=0
-MAX_LABELS_PER_BATCH=300
-MAX_LABELS_PER_JOB=2000
-GLABELS_TIMEOUT=600
-RETENTION_HOURS=24
-LOG_LEVEL=INFO
-MAX_REQUEST_BYTES=5000000
-MAX_FIELDS_PER_LABEL=50
-MAX_FIELD_LENGTH=2048
-CORS_ALLOW_ORIGINS=
-```
-
-## Local Development
-
-**Note**: For local development, you need Linux or WSL2 since gLabels only supports Linux platforms.
-
-```bash
-# Setup virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install development dependencies (for testing and linting)
-pip install -r requirements-dev.txt
-
-# Install gLabels on your Linux system (required dependency)
+# Install gLabels
 sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
 
-# Run application
-python -m app.main
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Run
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### VS Code Debugging (F5)
+> **Windows users**: gLabels requires Linux. Use Docker or WSL2.
 
-The project includes `.vscode/launch.json` for debugging. Simply press **F5** to start debugging with breakpoints.
+---
+
+## Production Deployment
+
+This project is internal-first. For production, use one of these two flows:
+
+1. Define environment variables directly in Linux service (`Environment=` / `EnvironmentFile=`).
+2. Import `.env` before starting the service if you prefer fewer typed variables.
+
+Then start the service with Docker Compose:
+
+```bash
+docker compose up -d
+docker compose ps
+docker compose logs -f
+```
+
+### Using with nginx (Reverse Proxy)
+
+If deploying behind nginx, configure the following for proper SSE support:
+
+```nginx
+upstream backend {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    # SSE endpoints (real-time streaming)
+    location /labels/jobs/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        
+        # Disable buffering for Server-Sent Events
+        proxy_buffering off;
+        proxy_cache off;
+        
+        # Keep connection open for long-lived requests
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        
+        # Required headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        
+        # CORS (optional, if needed)
+        add_header Access-Control-Allow-Origin * always;
+    }
+
+    # All other endpoints (normal buffering)
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        
+        proxy_buffering on;
+        proxy_read_timeout 60s;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+}
+```
+
+**Key Configuration Points**:
+
+- `proxy_buffering off` — Required for SSE to work properly
+- `proxy_read_timeout 3600s` — Allow up to 1 hour for long-running jobs
+- `proxy_http_version 1.1` — Essential for connection reuse
+- `Connection ""` — Prevents nginx from adding `Connection: close`
+
+> **Tip**: If using SSL/TLS, ensure `proxy_set_header X-Forwarded-Proto $scheme;` is set so the app knows it's behind HTTPS.
+
+---
+
+## Configuration
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and adjust:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENVIRONMENT` | Runtime environment (development/production) | `production` |
+| `HOST` / `PORT` | Server address and port | `0.0.0.0` / `8000` |
+| `RELOAD` | Auto-reload on code changes (dev only) | `false` |
+| `MAX_PARALLEL` | Parallel workers (0=auto, cgroup-aware) | `0` |
+| `MAX_LABELS_PER_BATCH` | Labels per batch before split | `300` |
+| `MAX_LABELS_PER_JOB` | Max labels per request | `2000` |
+| `GLABELS_TIMEOUT` | Timeout per batch in seconds | `600` |
+| `RETENTION_HOURS` | Job retention time | `24` |
+| `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
+| `LOG_FORMAT` | Logging format (text/json) | `text` |
+| `LOG_DIR` | Log file directory | `logs` |
+| `REQUEST_ID_HEADER` | Request ID header name | `X-Request-ID` |
+| `RATE_LIMIT` | Rate limit for `/labels/print` | `60/minute` |
+| `ENABLE_METRICS` | Enable Prometheus metrics endpoint | `true` |
+| `SHUTDOWN_TIMEOUT` | Graceful shutdown timeout (seconds) | `30` |
+| `KEEP_CSV` | Retain intermediate CSV files | `false` |
+| `MAX_REQUEST_BYTES` | Request body size limit | `5000000` |
+| `MAX_FIELDS_PER_LABEL` | Max fields per label record | `50` |
+| `MAX_FIELD_LENGTH` | Max length per field value | `2048` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated allowed origins (empty=disabled) | `` |
+
+### Configuration Priority
+
+1. System environment variables
+2. `.env` file
+3. Default values in `app/config.py`
+
+> **Security**: Never commit `.env` with real values to version control.
+
+---
 
 ## API Examples
 
@@ -206,7 +203,7 @@ curl -X POST http://localhost:8000/labels/print \
   }'
 ```
 
-Response:
+**Response:**
 
 ```json
 {"job_id": "abc123..."}
@@ -215,21 +212,36 @@ Response:
 ### Check Job Status
 
 ```bash
-curl http://localhost:8000/labels/jobs/abc123...
+curl http://localhost:8000/labels/jobs/{job_id}
 ```
 
-### Stream Job Status (SSE)
+**Response Example:**
 
-For real-time status updates, use Server-Sent Events:
+```json
+{
+  "job_id": "abc123...",
+  "status": "done",
+  "template": "demo.glabels",
+  "filename": "demo_20260209_103000.pdf",
+  "error": null,
+  "created_at": "2026-02-09T10:30:00",
+  "started_at": "2026-02-09T10:30:01",
+  "finished_at": "2026-02-09T10:30:05"
+}
+```
+
+### Stream Status (SSE)
+
+Real-time status updates using Server-Sent Events:
 
 ```bash
-curl -N http://localhost:8000/labels/jobs/abc123.../stream
+curl -N http://localhost:8000/labels/jobs/{job_id}/stream
 ```
 
-Or in JavaScript:
+**JavaScript Example:**
 
 ```javascript
-const es = new EventSource('/labels/jobs/abc123.../stream');
+const es = new EventSource('/labels/jobs/{job_id}/stream');
 es.addEventListener('status', (e) => {
     const job = JSON.parse(e.data);
     console.log(job.status);  // pending → running → done
@@ -242,13 +254,11 @@ es.addEventListener('status', (e) => {
 ### Download PDF
 
 ```bash
-curl -O http://localhost:8000/labels/jobs/abc123.../download
-```
+# Download file
+curl -O http://localhost:8000/labels/jobs/{job_id}/download
 
-Preview in browser:
-
-```bash
-curl http://localhost:8000/labels/jobs/abc123.../download?preview=true
+# Preview in browser
+curl http://localhost:8000/labels/jobs/{job_id}/download?preview=true
 ```
 
 ### List Templates
@@ -257,44 +267,163 @@ curl http://localhost:8000/labels/jobs/abc123.../download?preview=true
 curl http://localhost:8000/labels/templates
 ```
 
+**Response Example:**
+
+```json
+[
+  {
+    "name": "demo.glabels",
+    "field_count": 2,
+    "has_headers": true
+  }
+]
+```
+
+---
+
 ## Templates & Data Format
 
+### Template Files
+
 - Place `.glabels` template files in `templates/` directory
-- JSON data fields must match template variables
-- Data array must be non-empty and within configured limits
+- Supported template merge type: CSV/Comma only
+- System automatically discovers and parses field definitions
+- Use `/labels/templates` API to browse available templates (summary); use `/labels/templates/{name}` for detailed field information
+
+### Data Format Requirements
+
+- JSON field names must match template variables exactly (case-sensitive)
+- `data` array must not be empty
+- Maximum `MAX_LABELS_PER_JOB` labels per request (default 2000)
+- Maximum `MAX_FIELDS_PER_LABEL` fields per label record (default 50)
+- Maximum `MAX_FIELD_LENGTH` characters per field value (default 2048)
+
+### File Output
+
 - Generated PDFs saved to `output/` directory
-- Temporary CSV files in `temp/` (configurable retention)
+- Filename format: `{template_name}_{timestamp}.pdf`
+- Temporary CSV files in `temp/` (retained if `KEEP_CSV=true`)
+- Jobs retained for `RETENTION_HOURS` hours after completion (default 24)
+
+---
+
+## Observability
+
+### Request ID
+
+Every response includes an `X-Request-ID` header. Pass your own in the request or let the server generate one. Use it to trace a request through logs.
+
+### Rate Limiting
+
+`/labels/print` is rate-limited (default `60/minute`). Exceeding the limit returns `429 Too Many Requests`. Adjust via `RATE_LIMIT` env var.
+
+### Prometheus Metrics
+
+When `ENABLE_METRICS=true` (default), a `/metrics` endpoint exposes request counts, latency histograms, and status codes in Prometheus format.
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+### Graceful Shutdown
+
+On shutdown the service waits up to `SHUTDOWN_TIMEOUT` seconds (default 30) for running jobs to finish before stopping workers.
+
+---
+
+## Architecture
+
+### Execution Flow
+
+```text
+Client Request → FastAPI → JobManager → LabelPrintService → GlabelsEngine → PDF Output
+                               ↓              ↓                  ↓
+                           Queue Mgmt     JSON→CSV           CLI Wrapper
+                           Worker Pool    Batch Split        subprocess
+                                          PDF Merge
+```
+
+### Project Structure
+
+```text
+app/
+├── api/
+│   └── print_jobs.py          # API routes and endpoints
+├── core/
+│   ├── limiter.py             # Rate limiter instance (SlowAPI)
+│   ├── logger.py              # Logging configuration
+│   └── version.py             # Version info
+├── parsers/
+│   ├── base_parser.py         # Base parser class
+│   └── csv_parser.py          # CSV format parser
+├── services/
+│   ├── job_manager.py         # Job queue and worker management
+│   ├── label_print.py         # JSON→CSV, batch split, PDF merge
+│   └── template_service.py    # Template discovery and parsing
+├── utils/
+│   ├── cpu_detect.py          # Container-aware CPU detection (cgroup)
+│   └── glabels_engine.py      # glabels-3-batch CLI wrapper
+├── config.py                  # Environment configuration (pydantic-settings)
+├── schema.py                  # Pydantic data models
+└── main.py                    # FastAPI application entry point
+```
+
+### Key Components
+
+- **JobManager**: Manages job queue, worker pool, status tracking, and cleanup
+- **LabelPrintService**: Handles JSON to CSV conversion, batch splitting, PDF merging
+- **GlabelsEngine**: Async wrapper for `glabels-3-batch` CLI with timeout handling
+- **TemplateService**: Auto-discovers `templates/` directory and parses `.glabels` files
+
+---
 
 ## Testing
 
 ```bash
 # Run all tests
-pytest tests/
-
-# Run with verbose output
 pytest tests/ -v
 
-# Run with coverage report
+# With coverage
 pytest tests/ --cov=app --cov-report=html
 
-# Run specific test
-pytest tests/test_glabels_engine.py
+# View coverage report
+open htmlcov/index.html
+
+# Specific test file
+pytest tests/test_glabels_engine.py -v
 ```
+
+---
 
 ## Troubleshooting
 
 **Common Issues:**
 
-- `404 Job not found` - Job expired or doesn't exist
-- `glabels-3-batch not found` - gLabels not installed (shouldn't happen in Docker)
-- Permission errors - Check volume mount permissions
-- Template not found - Verify template exists in `templates/` directory
-- **Windows compatibility** - Use Docker Desktop or WSL2 (gLabels requires Linux)
+| Issue | Solution |
+|-------|----------|
+| `404 Job not found` | Job expired (default 24h retention) or invalid job_id |
+| `409 Conflict` | Job still running, wait for completion |
+| `410 Gone` | Job expired and cleaned up |
+| `glabels-3-batch not found` | Use Docker (gLabels auto-installed) |
+| Template not found | Verify `.glabels` file exists in `templates/` directory |
+| Timeout errors | `GLABELS_TIMEOUT` is **per-batch** timeout (default 600s). 1000 labels = 4 batches = up to 2400s total |
+| Windows compatibility | Use Docker Desktop or WSL2 (gLabels requires Linux) |
+
+**Frequently Asked Questions:**
+
+**Q: How to handle large label batches?**  
+A: System automatically splits batches (default 300 labels/batch) and merges PDFs. Adjust `MAX_LABELS_PER_BATCH` as needed.
+
+**Q: How to adjust parallel processing?**  
+A: Set `MAX_PARALLEL` - `0` for auto (CPU-1), or specify explicit number like `4`. Production: match CPU cores.
+
+**Q: Job stuck in pending status?**  
+A: Check `docker compose logs -f` to verify workers are running. Verify `MAX_PARALLEL` setting.
 
 **Debugging:**
 
 ```bash
-# Check container logs
+# View container logs
 docker compose logs -f
 
 # Check container status
@@ -302,23 +431,47 @@ docker compose ps
 
 # Access container shell
 docker compose exec glabels-batch-service sh
+
+# Check health status
+curl http://localhost:8000/health
+
+# View runtime info
+curl http://localhost:8000/
 ```
 
-## Deployment Notes
+---
 
-- Backup `templates/` and `output/` directories regularly
-- Monitor container resource usage
-- Logs auto-rotate (5MB/file, keeps 10 files), configurable in `app/core/logger.py`
+## Development
 
-## Configuration Tips
+### Local Setup
 
-- `MAX_PARALLEL=0` auto-sets to CPU cores-1, adjust based on system performance
-- `MAX_LABELS_PER_BATCH=300` controls how many labels are processed per batch before merging into a single PDF
-- `MAX_LABELS_PER_JOB=2000` limits labels per request to avoid oversized jobs
-- `MAX_REQUEST_BYTES=5000000` caps request body size to protect memory usage
-- `MAX_FIELDS_PER_LABEL=50` limits the number of fields per label record
-- `MAX_FIELD_LENGTH=2048` limits the length of any single field value
-- `CORS_ALLOW_ORIGINS` comma-separated allowed origins (leave empty to disable CORS)
-- `GLABELS_TIMEOUT=600` increase if processing large datasets times out
-- `KEEP_CSV=true` enables CSV file retention for debugging purposes
-- `RETENTION_HOURS=24` controls how long jobs are kept in memory
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Install gLabels (Linux/WSL)
+sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
+
+# Run service (with hot reload)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Or press F5 in VS Code for debugging (uses .env)
+```
+
+### Code Quality
+
+```bash
+# Run linter
+ruff check app/ tests/
+
+# Format code
+ruff format app/ tests/
+
+# Type checking
+mypy app/
+```

@@ -1,61 +1,47 @@
 # Templates Directory
 
-## Purpose
+Place your **gLabels template files** (.glabels) here for the label printing service.
 
-This directory stores **gLabels template files** used by the label printing service.
+## Quick Start
 
-## File Format
+1. **Add your template file:**
 
-- `.glabels` - Standard gLabels template file (regardless of compression)
+   ```text
+   templates/
+   └── your_template.glabels
+   ```
 
-## How to Use
+2. **Use in API:**
 
-### 1. Place your template
+   ```json
+   {
+     "template_name": "your_template.glabels",
+     "data": [
+       {"FIELD1": "Value1", "FIELD2": "Value2"}
+     ]
+   }
+   ```
 
-Put your gLabels template file directly into this directory:
+## Requirements
 
-```text
-templates/
-├── your_custom_template.glabels      ← your template file
-````
+- **Field mapping**: JSON keys must match template field names exactly (case-sensitive)
+- **File format**: .glabels extension required
+- **Encoding**: Use UTF-8 for non-ASCII characters (Chinese, etc.)
+- **Testing**: Verify template in gLabels desktop app before uploading
 
-### 2. API Usage
+## Example
 
-When calling `POST /labels/print`, use the filename (without path):
+If your template defines fields `CODE` and `ITEM`:
 
 ```json
 {
-  "template_name": "your_custom_template.glabels",
+  "template_name": "demo.glabels",
   "data": [
-    {"DATA1": "D1", "DATA2": "D01"},
-    {"DATA1": "D2", "DATA2": "D02"}
+    {"CODE": "A001", "ITEM": "Product A"},
+    {"CODE": "A002", "ITEM": "Product B"}
   ],
   "copies": 1
 }
 ```
 
-## Template Requirements
-
-- **CSV field mapping**: The field names defined in the template must exactly match the keys in the API `data` object.
-- **UTF-8 encoding**: Ensure UTF-8 encoding to correctly render Chinese or other special characters.
-- **Testing recommendation**: Test your template in the gLabels desktop application before placing it here.
-
-## Example
-
-Suppose `your_custom_template.glabels` defines these fields:
-
-- `DATA1` - Field 1
-- `DATA2` - Field 2
-
-Corresponding API request:
-
-```json
-{
-  "template_name": "your_custom_template.glabels",
-  "data": [
-    {"DATA1": "D1", "DATA2": "D01"},
-    {"DATA1": "D2", "DATA2": "D02"}
-  ],
-  "copies": 2
-}
-```
+List available templates: `GET /labels/templates`

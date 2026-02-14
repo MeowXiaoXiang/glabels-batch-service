@@ -2,14 +2,24 @@
 # Global configuration file: loads environment variables and .env
 # Using pydantic-settings to automatically map env vars to Python attributes
 
+from pathlib import Path
+from typing import Any
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # -------------------------
+    # Environment configuration
+    # -------------------------
+    ENVIRONMENT: str = "production"
+    # Environment mode: development / production
+    # Controls safety validations and default behaviors
+
+    # -------------------------
     # Server configuration
     # -------------------------
-    HOST: str = "0.0.0.0"
+    HOST: str = "0.0.0.0"  # nosec: B104
     # IP address to bind (0.0.0.0 = all interfaces)
 
     PORT: int = 8000
@@ -27,7 +37,7 @@ class Settings(BaseSettings):
 
     MAX_PARALLEL: int = 0
     #  >0   = explicit number of concurrent jobs (e.g. 4)
-    #  0    = auto (defaults to CPU count - 1)
+    #  0    = auto (cgroup-aware: reads container CPU quota, falls back to os.cpu_count())
 
     GLABELS_TIMEOUT: int = 600
     # Max timeout per job in seconds (default 600 = 10 minutes)
@@ -47,8 +57,27 @@ class Settings(BaseSettings):
     # Logging level: DEBUG / INFO / WARNING / ERROR
     # Default INFO, recommended INFO or higher in production
 
+    LOG_FORMAT: str = "text"
+    # Logging format: text | json
+    # json is useful for log aggregators (Loki/ELK)
+
     LOG_DIR: str = "logs"
     # Directory for log files. Can be relative or absolute. Default: logs
+
+    # -------------------------
+    # Observability & safety
+    # -------------------------
+    REQUEST_ID_HEADER: str = "X-Request-ID"
+    # Incoming/outgoing request ID header name
+
+    RATE_LIMIT: str = "60/minute"
+    # Rate limit for sensitive endpoints (e.g., /labels/print)
+
+    ENABLE_METRICS: bool = True
+    # Enable Prometheus metrics endpoint (/metrics)
+
+    SHUTDOWN_TIMEOUT: int = 30
+    # Max seconds to wait for queue drain on shutdown
 
     MAX_REQUEST_BYTES: int = 5_000_000
     # Maximum allowed HTTP request body size in bytes (approx 5 MB)
@@ -68,8 +97,20 @@ class Settings(BaseSettings):
     # -------------------------
     # Internal settings
     # -------------------------
-    # Load .env file from project root
-    model_config = SettingsConfigDict(env_file=".env")
+    # Load .env file from project root (if exists)
+    model_config = SettingsConfigDict(
+        env_file=".env" if Path(".env").exists() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    def model_post_init(self, __context: Any) -> None:
+        """Production safety validation."""
+        if self.ENVIRONMENT == "production" and self.RELOAD:
+            raise ValueError(
+                "RELOAD must be false in production! "
+                "Set RELOAD=false or ENVIRONMENT=development"
+            )
 
 
 # Singleton instance

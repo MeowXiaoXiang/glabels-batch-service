@@ -5,8 +5,9 @@
 # - Integrates with parser system for format detection
 
 from pathlib import Path
-from typing import List
+from typing import Any
 
+import defusedxml.ElementTree as SafeET
 from loguru import logger
 
 from app import parsers
@@ -28,11 +29,13 @@ class TemplateService:
             templates_dir: Directory containing template files
         """
         self.templates_dir = Path(templates_dir)
+        # cache key: absolute template path -> (mtime, parsed TemplateInfo)
+        self._template_cache: dict[str, tuple[float, TemplateInfo]] = {}
         logger.debug(
             f"[TemplateService] Initialized with templates directory: {self.templates_dir}"
         )
 
-    def list_templates(self) -> List[TemplateInfo]:
+    def list_templates(self) -> list[TemplateInfo]:
         """
         List all available templates with their information.
 
@@ -90,13 +93,24 @@ class TemplateService:
 
         if not template_path.exists():
             raise FileNotFoundError(f"Template file not found: {template_name}")
+        if not template_path.is_file():
+            raise ValueError(f"Template path is not a file: {template_name}")
 
         logger.debug(f"[TemplateService] Getting template info: {template_name}")
+
+        cache_key = str(template_path)
+        mtime = template_path.stat().st_mtime
+        cached = self._template_cache.get(cache_key)
+        if cached and cached[0] == mtime:
+            logger.debug(f"[TemplateService] Cache hit: {template_name}")
+            return cached[1]
 
         # Detect template format and get appropriate parser
         format_type = self._detect_format(template_path)
         parser = parsers.get_parser(format_type)
-        return parser.parse_template_info(template_path)
+        info = parser.parse_template_info(template_path)
+        self._template_cache[cache_key] = (mtime, info)
+        return info
 
     def template_exists(self, template_name: str) -> bool:
         """
@@ -160,27 +174,8 @@ class TemplateService:
         Raises:
             ValueError: If template format is not supported
         """
-        import gzip
-        import xml.etree.ElementTree as ET
-
         try:
-            # Decompress and parse gLabels file
-            with gzip.open(template_path, "rt", encoding="utf-8") as f:
-                xml_content = f.read()
-            root = ET.fromstring(xml_content)
-
-            # Find Merge element (handle namespaces)
-            merge_element = root.find("Merge")
-            if merge_element is None:
-                merge_element = root.find(".//{http://glabels.org/xmlns/3.0/}Merge")
-            if merge_element is None:
-                merge_elements = root.iter("Merge")
-                merge_element = next(merge_elements, None)
-
-            if merge_element is None:
-                raise ValueError(f"Template missing Merge element: {template_path}")
-
-            merge_type = merge_element.get("type", "")
+            merge_type = self._extract_merge_type(template_path)
 
             # Determine parser type based on merge_type
             match merge_type:
@@ -201,7 +196,44 @@ class TemplateService:
                 # Note: Binary formats like "ebook/vcard" are not supported
                 # as they require different handling than text-based parsers
                 case _:
-                    raise ValueError(f"Unsupported merge type: {merge_type}")
+                    raise ValueError(
+                        "Unsupported merge type: "
+                        f"{merge_type}. Only CSV/Comma templates are supported."
+                    )
 
+        except ValueError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to detect template format: {e}")
+
+    def _extract_merge_type(self, template_path: Path) -> str:
+        """
+        Extract merge type from a .glabels template.
+        """
+        import gzip
+
+        with gzip.open(template_path, "rt", encoding="utf-8") as f:
+            xml_content = f.read()
+
+        root = SafeET.fromstring(xml_content)
+        merge_element = self._find_merge_element(root)
+        if merge_element is None:
+            raise ValueError(f"Template missing Merge element: {template_path}")
+
+        merge_type_raw = merge_element.get("type", "")
+        merge_type = str(merge_type_raw)
+        if not merge_type:
+            raise ValueError(f"Template merge type is empty: {template_path}")
+        return merge_type
+
+    @staticmethod
+    def _find_merge_element(root: Any) -> Any | None:
+        """
+        Find Merge element while handling namespace variants.
+        """
+        merge_element = root.find("Merge")
+        if merge_element is None:
+            merge_element = root.find(".//{http://glabels.org/xmlns/3.0/}Merge")
+        if merge_element is None:
+            merge_element = next(root.iter("Merge"), None)
+        return merge_element

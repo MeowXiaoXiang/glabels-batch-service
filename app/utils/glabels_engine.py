@@ -28,13 +28,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from asyncio.subprocess import Process
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence, Union
 
 from loguru import logger
 
 # Type alias: PathLike can be str or pathlib.Path
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 __all__ = [
     "GlabelsRunError",
@@ -49,17 +49,22 @@ class GlabelsRunError(RuntimeError):
     """Base error for glabels-3-batch execution, carries returncode and stderr."""
 
     def __init__(
-        self, message: str, rc: Optional[int] = None, stderr: Optional[str] = None
+        self,
+        message: str,
+        rc: int | None = None,
+        stderr: str | None = None,
+        stdout: str | None = None,
     ):
         super().__init__(message)
         self.returncode = rc  # Subprocess return code (may be None if timeout)
         self.stderr = stderr or ""  # Captured stderr from the subprocess (may be empty)
+        self.stdout = stdout or ""  # Captured stdout from the subprocess (may be empty)
 
 
 class GlabelsTimeoutError(GlabelsRunError):
     """Raised when glabels-3-batch execution exceeds timeout."""
 
-    def __init__(self, timeout: Optional[float]):
+    def __init__(self, timeout: float | None):
         super().__init__(
             f"glabels execution timed out after {timeout}s", rc=None, stderr="timeout"
         )
@@ -69,8 +74,13 @@ class GlabelsTimeoutError(GlabelsRunError):
 class GlabelsExecutionError(GlabelsRunError):
     """Raised when glabels-3-batch exits with non-zero code or PDF output is missing."""
 
-    def __init__(self, rc: int, stderr: str):
-        super().__init__(f"glabels execution failed (rc={rc})", rc=rc, stderr=stderr)
+    def __init__(self, rc: int, stderr: str, stdout: str = ""):
+        super().__init__(
+            f"glabels execution failed (rc={rc})",
+            rc=rc,
+            stderr=stderr,
+            stdout=stdout,
+        )
 
 
 # Engine
@@ -86,9 +96,9 @@ class GlabelsEngine:
     def __init__(
         self,
         *,
-        glabels_bin: Union[str, Path] = "glabels-3-batch",
+        glabels_bin: str | Path = "glabels-3-batch",
         max_parallel: int = 1,
-        default_timeout: Optional[float] = None,
+        default_timeout: float | None = None,
     ):
         self.glabels_bin = f"{glabels_bin}"  # CLI binary path
         self._semaphore = asyncio.Semaphore(
@@ -97,7 +107,7 @@ class GlabelsEngine:
         self.default_timeout = default_timeout  # Default timeout (can be overridden)
 
     async def _communicate_with_timeout(
-        self, proc: Process, timeout: Optional[float]
+        self, proc: Process, timeout: float | None
     ) -> tuple[bytes, bytes]:
         """
         Wait for subprocess to finish, with optional timeout.
@@ -105,7 +115,7 @@ class GlabelsEngine:
         """
         try:
             return await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
                 await proc.wait()
@@ -118,7 +128,7 @@ class GlabelsEngine:
         template_path: PathLike,
         csv_path: PathLike,
         extra_args: Sequence[str] = (),
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         log_truncate: int = 4096,  # Maximum log size to prevent flooding
     ) -> tuple[int, str, str]:
         """
@@ -183,16 +193,21 @@ class GlabelsEngine:
 
         # Limit concurrent processes
         async with self._semaphore:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except FileNotFoundError as e:
+                raise FileNotFoundError(
+                    f"glabels binary not found: {self.glabels_bin}"
+                ) from e
             stdout_b, stderr_b = await self._communicate_with_timeout(
                 proc, timeout=effective_timeout
             )
 
-        rc = int(proc.returncode)
+        rc = proc.returncode if proc.returncode is not None else -1
         stdout = stdout_b.decode("utf-8", errors="ignore") if stdout_b else ""
         stderr = stderr_b.decode("utf-8", errors="ignore") if stderr_b else ""
 
@@ -205,7 +220,7 @@ class GlabelsEngine:
 
         # Failure condition: rc != 0 or PDF not created
         if rc != 0 or not out.exists():
-            raise GlabelsExecutionError(rc=rc, stderr=stderr)
+            raise GlabelsExecutionError(rc=rc, stderr=stderr, stdout=stdout)
 
         # Success logging
         logger.info(f"glabels done → {out}")

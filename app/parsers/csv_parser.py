@@ -5,15 +5,18 @@
 # - Extracts field information from template
 
 import gzip
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List
+from typing import TYPE_CHECKING
 
+import defusedxml.ElementTree as SafeET
 from loguru import logger
 
 from app.schema import TemplateInfo
 
 from .base_parser import BaseParser
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element  # nosec B405
 
 
 class CSVParser(BaseParser):
@@ -41,7 +44,7 @@ class CSVParser(BaseParser):
 
         try:
             xml_content = self._decompress_glabels_file(template_path)
-            root = ET.fromstring(xml_content)
+            root = SafeET.fromstring(xml_content)
 
             # Find Merge element (handle namespaces)
             merge_element = root.find("Merge")
@@ -64,8 +67,8 @@ class CSVParser(BaseParser):
             else:
                 return self._parse_no_header_format(template_path, root, merge_type)
 
-        except ET.ParseError as e:
-            raise ValueError(f"Failed to parse XML: {e}")
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"[CSVParser] Template parsing failed: {e}")
             raise ValueError(f"Failed to parse template file: {e}")
@@ -87,7 +90,7 @@ class CSVParser(BaseParser):
             raise ValueError(f"Failed to decompress gLabels file: {e}")
 
     def _parse_header_format(
-        self, template_path: Path, root: ET.Element, merge_type: str
+        self, template_path: Path, root: "Element", merge_type: str
     ) -> TemplateInfo:
         """
         Parse template with CSV headers format.
@@ -113,7 +116,7 @@ class CSVParser(BaseParser):
         )
 
     def _parse_no_header_format(
-        self, template_path: Path, root: ET.Element, merge_type: str
+        self, template_path: Path, root: "Element", merge_type: str
     ) -> TemplateInfo:
         """
         Parse template with CSV no-headers format.
@@ -140,7 +143,7 @@ class CSVParser(BaseParser):
             merge_type=merge_type,
         )
 
-    def _extract_field_names(self, root: ET.Element) -> List[str]:
+    def _extract_field_names(self, root: "Element") -> list[str]:
         """
         Extract field names from template (for header format).
 
@@ -166,7 +169,7 @@ class CSVParser(BaseParser):
                 fields.add(field_attr)
         return sorted(list(fields))
 
-    def _extract_field_positions(self, root: ET.Element) -> List[str]:
+    def _extract_field_positions(self, root: "Element") -> list[str]:
         """
         Extract field positions from template (for no-header format).
 

@@ -11,9 +11,8 @@ Covers:
 """
 
 import csv
-import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pypdf import PdfWriter
@@ -307,7 +306,7 @@ class TestLabelPrintServiceBatching:
 
         monkeypatch.setattr("app.services.label_print.Path", MockPath)
 
-        result = await service.generate_pdf(
+        await service.generate_pdf(
             job_id="test4",
             template_name="test.glabels",
             data=data,

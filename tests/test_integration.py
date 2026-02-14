@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Integration tests for Labels Service
+Integration tests for gLabels Batch Service
 ====================================
 
 Covers essential end-to-end workflows:
@@ -10,7 +10,6 @@ Covers essential end-to-end workflows:
 """
 
 import gzip
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -22,7 +21,6 @@ from app.services.template_service import TemplateService
 
 
 class TestEndToEndIntegration:
-
     @pytest.fixture
     def temp_workspace(self, tmp_path):
         """Create temporary workspace with directories and test files."""
