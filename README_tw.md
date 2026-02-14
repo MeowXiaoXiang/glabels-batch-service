@@ -1,7 +1,7 @@
 # gLabels Batch Service
 
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.128.6-009688?logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
+![Framework](https://img.shields.io/badge/Framework-FastAPI-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
@@ -366,7 +366,6 @@ app/
 ├── core/
 │   ├── limiter.py         # 速率限制器實例（SlowAPI）
 │   ├── logger.py          # 日誌設定
-│   └── version.py         # 版本資訊
 ├── parsers/
 │   ├── base_parser.py     # 解析器基底類別
 │   └── csv_parser.py      # CSV 格式解析器
