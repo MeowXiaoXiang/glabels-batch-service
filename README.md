@@ -9,8 +9,8 @@ Contribution and commit message guidelines: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Run
 
-Requires Python 3.14 or newer and a working gLabels batch executable. The default
-Docker runtime includes GTK, fonts, and the Python dependencies:
+The default Docker runtime includes Python, GTK, fonts, and the Python
+dependencies. The host only needs Docker with Compose:
 
 ```sh
 cp .env.example .env
@@ -24,7 +24,8 @@ Run one service instance and one Uvicorn worker per store. A second owner of the
 same SQLite store is rejected. SQLite is a local result index, not a distributed
 queue. The default Compose limits are 4 CPUs and 2 GB memory.
 
-For an installed local renderer:
+To run without Docker, use Python 3.14 or newer and install a working gLabels
+batch executable, its native libraries, and fonts:
 
 ```sh
 uv sync --locked --no-dev
@@ -180,14 +181,13 @@ rejected. The template provider owns field mapping and layout correctness.
 
 Request options: `copies` defaults to 1; `copy_order` is `sets` or `per_record`;
 `labels_per_page` is a positive integer or null. Status/SSE retain these options
-after restart. Jobs saved before normalization report `copy_order="renderer_native"`
-and no page declaration; their existing PDFs are retained without re-rendering.
+after restart.
 
 ## Results and restart
 
 SQLite stores minimal metadata; final PDFs remain in `output/<job_id>.pdf`.
-Schema v1 upgrades transactionally to v2, preserving existing IDs and expiry.
-Older binaries that only support v1 cannot open the upgraded database.
+Schema v1 includes copy ordering and page declarations. Unsupported schema
+versions are rejected at startup.
 The main process publishes a validated file by rename, then marks the job done.
 Only final PDFs are downloadable. CSVs, batch PDFs and staging files are cleaned
 after their actual operations end.
@@ -251,7 +251,7 @@ docker run --rm --cpus 4 --memory 2g labels-qt-test
 Real renderer tests skip explicitly when that executable is unavailable on the
 host; GTK/Qt container stages provide the corresponding binaries. See
 [tests/README.md](tests/README.md). The runtime image does not include research,
-tests, Qt build tools, pypdf, qpdf CLI or template XML parsers.
+tests, Qt build tools or qpdf CLI. The service does not parse template contents.
 
 `pyproject.toml` declares runtime dependencies, the `dev` dependency group, and
 tool settings. Commit the generated `uv.lock` with dependency changes; it locks
@@ -260,7 +260,8 @@ transitive versions and artifact hashes for Windows and Linux. CI and Docker use
 installs exclude the dev group and launch Uvicorn directly; uv is only mounted
 during installation. The Python and uv build images are pinned by digest.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dependency updates. gLabels, Qt/GTK,
-fonts, and other OS packages remain Docker-managed dependencies.
+fonts, and other OS packages are managed by the deployment, separately from uv;
+the default Docker image installs the GTK stack.
 
 Version 3 changes the API and environment configuration directly: `running`,
 template introspection fields, `MAX_PARALLEL` and `KEEP_CSV` are removed. Replace

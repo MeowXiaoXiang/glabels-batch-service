@@ -1,6 +1,5 @@
 import sqlite3
 from contextlib import closing
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -14,6 +13,7 @@ async def test_persistence_and_expiry_do_not_extend_on_restart(tmp_path):
     path = tmp_path / "state" / "jobs.sqlite3"
     store = JobStore(path)
     await store.open()
+    assert (await store.rows("PRAGMA user_version"))[0]["user_version"] == 1
     await store.create(
         identifier,
         "opaque.glabels",
@@ -47,47 +47,6 @@ async def test_persistence_and_expiry_do_not_extend_on_restart(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_v1_migration_preserves_original_completed_metadata(tmp_path):
-    path = tmp_path / "jobs.sqlite3"
-    identifier = str(uuid4())
-    timestamp = now_ms()
-    with closing(sqlite3.connect(path)) as db:
-        db.executescript((Path(__file__).parent / "fixtures/jobs-v1.sql").read_text())
-        db.execute(
-            "INSERT INTO jobs(job_id,status,template_name,record_count,copies,batch_count,created_at,finished_at,expires_at,final_name,publication_intent_at) VALUES (?,'done','demo.glabels',5,2,3,?,?,?,?,?)",
-            (
-                identifier,
-                timestamp,
-                timestamp,
-                timestamp + 60000,
-                identifier + ".pdf",
-                timestamp,
-            ),
-        )
-        db.commit()
-        before = dict(
-            zip(
-                [c[1] for c in db.execute("PRAGMA table_info(jobs)")],
-                db.execute("SELECT * FROM jobs").fetchone(),
-                strict=True,
-            )
-        )
-    for _ in range(2):
-        store = JobStore(path)
-        await store.open()
-        try:
-            after = await store.get(identifier)
-            assert all(after[key] == value for key, value in before.items())
-            assert (
-                after["copy_order"] == "renderer_native"
-                and after["labels_per_page"] is None
-            )
-            assert (await store.rows("PRAGMA user_version"))[0]["user_version"] == 2
-        finally:
-            await store.close()
-
-
-@pytest.mark.asyncio
 async def test_exclusive_owner_and_schema_version(tmp_path):
     path = tmp_path / "jobs.sqlite3"
     first, second = JobStore(path), JobStore(path)
@@ -99,7 +58,7 @@ async def test_exclusive_owner_and_schema_version(tmp_path):
         await second.close()
         await first.close()
     with closing(sqlite3.connect(path)) as db:
-        db.execute("PRAGMA user_version=9")
+        db.execute("PRAGMA user_version=2")
         db.commit()
     unknown = JobStore(path)
     try:

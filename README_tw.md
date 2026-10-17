@@ -8,7 +8,7 @@
 
 ## 啟動
 
-需要 Python 3.14 以上與可運作的 gLabels batch executable。預設 Docker image 已包含 GTK、中文字型與 Python 依賴：
+預設 Docker image 已包含 Python、GTK、中文字型與 Python 依賴，主機只需備妥 Docker 與 Compose：
 
 ```powershell
 Copy-Item .env.example .env
@@ -19,7 +19,7 @@ curl.exe http://localhost:8000/ready
 
 Compose 會持久掛載 state、output、templates 與 logs。state 保存 SQLite，output 保存 final，兩者都要保留。每個 store 只支援一個服務實例、一個 Uvicorn worker；第二個 owner 會被拒絕，不能直接加 workers 擴充。
 
-本機已裝好 renderer 時，使用 uv 0.12.10（需要安裝時可執行 `python -m pip install uv==0.12.10`）：
+不使用 Docker 時，請先準備 Python 3.14 以上、可運作的 gLabels batch executable、原生函式庫與字型，再使用 uv 0.12.10（需要安裝時可執行 `python -m pip install uv==0.12.10`）：
 
 ```powershell
 uv sync --locked --no-dev
@@ -98,7 +98,7 @@ uv run --locked --no-dev python -m app.main
 
 狀態：`pending → rendering → merging → done`，失敗為 failed。單 batch 可略過 merging，但一樣由隔離 worker 驗證 PDF。進度表示完成 render 的批數，還不代表 final 已能下載。batch 只有內部 index，不另外提供母／子 job ID。
 
-請求欄位：`copies` 預設 1、`copy_order` 為 `sets`／`per_record`、`labels_per_page` 為正整數或 null。狀態與 SSE 會保存排列／分頁宣告供重啟後查詢。正規化前的舊任務標為 `copy_order="renderer_native"`，保留原 PDF，不重新列印。SQLite schema v1 會以 transaction 升級至 v2，原 ID 與 expiry 不變；只支援 v1 的舊版程式無法開啟升級後的資料庫。
+請求欄位：`copies` 預設 1、`copy_order` 為 `sets`／`per_record`、`labels_per_page` 為正整數或 null。狀態與 SSE 會保存排列／分頁宣告供重啟後查詢。SQLite schema v1 已包含排列與分頁欄位；遇到不支援的結構版本會在啟動時拒絕開啟。
 
 資料只接受 scalar；CSV 依全 job 欄位首次出現順序產生一致 header，UTF-8 編碼、標準 quoting，null／缺值為空字串，boolean 為 true／false。巢狀物件、NUL、非有限數字會被拒絕。
 
@@ -124,8 +124,8 @@ SIGTERM 先停止接單並 drain，超過期限再停止及回收子程序。`/h
 
 依賴與工具設定集中在 `pyproject.toml`：正式依賴放 `project.dependencies`，開發工具放 `dependency-groups.dev`。`uv.lock` 由工具產生並一起進 Git，鎖住 Windows／Linux 所需的間接版本與套件雜湊，不手動維護另一份 txt。
 
-開發環境執行 `uv sync --locked`，測試用 `uv run --locked python -m pytest`。CI／Docker 同樣使用 `--locked`；宣告與 lock 不一致就失敗，正式部署加上 `--no-dev`。Python／uv 建置映像固定 digest，正式服務直接啟動 Uvicorn，uv 僅在安裝時掛載。gLabels、Qt／GTK、字型與 OS 套件仍由 Docker 管理；依賴更新方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+開發環境執行 `uv sync --locked`，測試用 `uv run --locked python -m pytest`。CI／Docker 同樣使用 `--locked`；宣告與 lock 不一致就失敗，正式部署加上 `--no-dev`。Python／uv 建置映像固定 digest，正式容器直接啟動 Uvicorn，uv 僅在安裝時掛載。gLabels、Qt／GTK、字型與 OS 套件由部署環境另外管理，預設 Docker image 安裝 GTK 所需套件；依賴更新方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-使用 [tests/README.md](tests/README.md) 的品質檢查與 GTK／Qt container tests。正式 image 不放 research、tests、Qt 編譯工具、qpdf CLI 或模板 parser。
+使用 [tests/README.md](tests/README.md) 的品質檢查與 GTK／Qt container tests。正式 image 不放 research、tests、Qt 編譯工具或 qpdf CLI；服務程式不解析模板內容。
 
 v3 直接更新 API 與設定：移除 running、模板解析欄位、MAX_PARALLEL、KEEP_CSV，請對照新的 `.env.example`。不維護舊版相容層。

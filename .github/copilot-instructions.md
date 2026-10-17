@@ -48,8 +48,9 @@ a push.
   examples consistent when changing supported behavior.
 - Preserve bounded admission, process-tree cleanup, SQLite ownership,
   publication/restart reconciliation, and download/expiry coordination.
-- Schema changes must preserve retained results through a transactional
-  migration and have behavior tests.
+- Changes to a published schema must preserve retained results through a
+  transactional migration and have behavior tests. The initial schema is v1,
+  including copy ordering and page declarations.
 - Configuration lives in `app/config.py`; use `.env.example` as the operator
   reference. Avoid copying defaults into another table that can become stale.
 - Production Docker contains GTK and runtime Python dependencies. `qt-test`

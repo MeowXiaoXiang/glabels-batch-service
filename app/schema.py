@@ -82,7 +82,7 @@ class JobStatusResponse(BaseModel):
     template_name: str
     record_count: int
     copies: int
-    copy_order: Literal["sets", "per_record", "renderer_native"]
+    copy_order: Literal["sets", "per_record"]
     labels_per_page: int | None
     progress: JobProgress | None = None
     created_at: datetime

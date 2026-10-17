@@ -1,14 +1,13 @@
 import sqlite3
 import time
 from contextlib import closing
-from pathlib import Path
 from uuid import uuid4
 
 import pikepdf
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.services.job_store import now_ms
+from app.services.job_store import SCHEMA, now_ms
 
 
 def test_full_public_contract_and_download(service_settings, fake_renderer):
@@ -76,7 +75,7 @@ def test_batching_requires_valid_page_declaration_before_creating_job(
         assert client.get("/labels/jobs").json() == []
 
 
-def test_v1_completed_job_still_downloads_after_schema_upgrade(service_settings):
+def test_completed_job_still_downloads_after_restart(service_settings):
     cfg = service_settings
     identifier, timestamp = str(uuid4()), now_ms()
     cfg.STATE_DIR.mkdir()
@@ -87,9 +86,9 @@ def test_v1_completed_job_still_downloads_after_schema_upgrade(service_settings)
         pdf.save(artifact)
     original = artifact.read_bytes()
     with closing(sqlite3.connect(cfg.STATE_DIR / "jobs.sqlite3")) as db:
-        db.executescript((Path(__file__).parent / "fixtures/jobs-v1.sql").read_text())
+        db.executescript(SCHEMA)
         db.execute(
-            "INSERT INTO jobs(job_id,status,template_name,record_count,copies,batch_count,created_at,finished_at,expires_at,final_name,publication_intent_at) VALUES (?,'done','demo.glabels',1,1,1,?,?,?,?,?)",
+            "INSERT INTO jobs(job_id,status,template_name,record_count,copies,copy_order,labels_per_page,batch_count,created_at,finished_at,expires_at,final_name,publication_intent_at) VALUES (?,'done','demo.glabels',1,1,'per_record',3,1,?,?,?,?,?)",
             (
                 identifier,
                 timestamp,
@@ -104,6 +103,7 @@ def test_v1_completed_job_still_downloads_after_schema_upgrade(service_settings)
         response = client.get(f"/labels/jobs/{identifier}")
         assert response.status_code == 200
         job = response.json()
-        assert job["status"] == "done" and job["copy_order"] == "renderer_native"
-        assert job["labels_per_page"] is None
+        assert job["status"] == "done" and job["copy_order"] == "per_record"
+        assert job["labels_per_page"] == 3
+        assert job["expires_at"] is not None
         assert client.get(job["download_url"]).content == original

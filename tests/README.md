@@ -28,7 +28,7 @@ Eight additional real-renderer cases compare complete jobs with page-aligned
 batches for both copy orders and copies=1/2, on a three-slot-per-page fixture.
 They check each page's label sequence, including partial final pages. Unit/API
 tests reject missing or oversized page declarations, fail publication on PDF
-page-count mismatch, and preserve schema-v1 completed downloads after migration.
+page-count mismatch, and preserve completed downloads after restart.
 
 Container tests supply those binaries:
 
@@ -42,7 +42,11 @@ docker run --rm --cpus 4 --memory 2g labels-qt-test
 The default production build excludes test dependencies. Test stage includes
 tests/fixtures and Poppler/zbar; qt-test additionally compiles the fixed upstream
 revision from Dockerfile. Fixtures are authored here, without parsing production
-templates. A Windows host without symlink permission skips the symlink test;
+templates. `fixtures/gtk.glabels` and `fixtures/qt.glabels` are renderer-specific
+test documents, not production templates. Both use the `.glabels` extension but
+have different content. Tests copy the selected fixture to `demo.glabels` in an
+isolated template directory; no demo template is installed by the runtime image.
+A Windows host without symlink permission skips the symlink test;
 Linux container tests exercise it.
 
 Short tests/accelerated retention cycles do not establish a production capacity
