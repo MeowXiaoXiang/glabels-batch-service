@@ -1,245 +1,39 @@
-#!/usr/bin/env python3
-"""
-Unit tests for TemplateService
-==============================
-
-Covers essential functionality:
-- Template discovery and listing
-- Template information retrieval
-- Basic error handling
-"""
-
-from pathlib import Path
-from unittest.mock import Mock, patch
-
 import pytest
 
-from app.schema import TemplateInfo
 from app.services.template_service import TemplateService
 
 
-class TestTemplateService:
-    @pytest.fixture
-    def service(self):
-        """Create TemplateService instance for testing."""
-        return TemplateService(templates_dir="test_templates")
+def test_catalog_does_not_parse_opaque_or_malformed_template(tmp_path):
+    (tmp_path / "opaque.glabels").write_bytes(b"not XML and not gzip")
+    (tmp_path / "other.txt").write_text("ignore")
+    catalog = TemplateService(tmp_path)
+    assert [t.model_dump() for t in catalog.list_templates()] == [
+        {"name": "opaque.glabels"}
+    ]
 
-    @patch("app.services.template_service.Path.exists")
-    @patch("app.services.template_service.Path.is_dir")
-    @patch("app.services.template_service.Path.glob")
-    def test_list_templates_success(self, mock_glob, mock_is_dir, mock_exists, service):
-        """Should list all templates with their information."""
-        # Setup mocks
-        mock_exists.return_value = True
-        mock_is_dir.return_value = True
 
-        # Mock template files
-        mock_file1 = Mock()
-        mock_file1.name = "demo.glabels"
-        mock_file2 = Mock()
-        mock_file2.name = "test.glabels"
-        mock_glob.return_value = [mock_file1, mock_file2]
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../bad.glabels",
+        "sub/bad.glabels",
+        "sub\\bad.glabels",
+        "C:bad.glabels",
+        "bad.xml",
+    ],
+)
+def test_catalog_rejects_paths(tmp_path, name):
+    with pytest.raises(ValueError):
+        TemplateService(tmp_path).get_template_path(name)
 
-        # Mock get_template_info calls
-        template_info1 = TemplateInfo(
-            name="demo.glabels",
-            format_type="CSV",
-            has_headers=True,
-            fields=["CODE", "ITEM"],
-            field_count=2,
-            merge_type="Text/Comma/Line1Keys",
-        )
-        template_info2 = TemplateInfo(
-            name="test.glabels",
-            format_type="CSV",
-            has_headers=False,
-            fields=["1", "2"],
-            field_count=2,
-            merge_type="Text/Comma",
-        )
 
-        with patch.object(service, "get_template_info") as mock_get_info:
-            mock_get_info.side_effect = [template_info1, template_info2]
-
-            templates = service.list_templates()
-
-            assert len(templates) == 2
-            assert templates[0].name == "demo.glabels"
-            assert templates[1].name == "test.glabels"
-
-    @patch("app.services.template_service.Path.exists")
-    def test_list_templates_directory_not_exists(self, mock_exists, service):
-        """Should return empty list when templates directory doesn't exist."""
-        mock_exists.return_value = False
-
-        templates = service.list_templates()
-
-        assert templates == []
-
-    @patch("app.services.template_service.Path.exists")
-    @patch("app.services.template_service.Path.is_file")
-    @patch("app.services.template_service.Path.stat")
-    @patch("app.parsers.get_parser")
-    def test_get_template_info_success(
-        self, mock_get_parser, mock_stat, mock_is_file, mock_exists, service
-    ):
-        """Should get template information successfully."""
-        mock_exists.return_value = True
-        mock_is_file.return_value = True
-        mock_stat.return_value = Mock(st_mtime=1000.0)
-
-        # Mock parser
-        mock_parser = Mock()
-        expected_info = TemplateInfo(
-            name="demo.glabels",
-            format_type="CSV",
-            has_headers=True,
-            fields=["CODE", "ITEM"],
-            field_count=2,
-            merge_type="Text/Comma/Line1Keys",
-        )
-        mock_parser.parse_template_info.return_value = expected_info
-        mock_get_parser.return_value = mock_parser
-
-        with patch.object(service, "_detect_format", return_value="csv"):
-            result = service.get_template_info("demo.glabels")
-
-            assert result == expected_info
-            mock_parser.parse_template_info.assert_called_once()
-
-    @patch("app.services.template_service.Path.exists")
-    @patch("app.services.template_service.Path.is_file")
-    @patch("app.services.template_service.Path.stat")
-    @patch("app.parsers.get_parser")
-    def test_get_template_info_cache_hit(
-        self,
-        mock_get_parser,
-        mock_stat,
-        mock_is_file,
-        mock_exists,
-        service,
-    ):
-        """Should reuse cached TemplateInfo when mtime is unchanged."""
-        mock_exists.return_value = True
-        mock_is_file.return_value = True
-        mock_stat.return_value = Mock(st_mtime=1000.0)
-
-        mock_parser = Mock()
-        expected_info = TemplateInfo(
-            name="demo.glabels",
-            format_type="CSV",
-            has_headers=True,
-            fields=["CODE", "ITEM"],
-            field_count=2,
-            merge_type="Text/Comma/Line1Keys",
-        )
-        mock_parser.parse_template_info.return_value = expected_info
-        mock_get_parser.return_value = mock_parser
-
-        with patch.object(service, "_detect_format", return_value="csv") as mock_detect:
-            result1 = service.get_template_info("demo.glabels")
-            result2 = service.get_template_info("demo.glabels")
-
-        assert result1 == expected_info
-        assert result2 == expected_info
-        assert mock_detect.call_count == 1
-        mock_parser.parse_template_info.assert_called_once()
-
-    @patch("app.parsers.get_parser")
-    def test_get_template_info_cache_invalidate_on_mtime_change(
-        self,
-        mock_get_parser,
-        service,
-    ):
-        """Should refresh cache when template mtime changes."""
-        mock_template_path = Mock(spec=Path)
-        mock_template_path.exists.return_value = True
-        mock_template_path.is_file.return_value = True
-        mock_template_path.stat.side_effect = [
-            Mock(st_mtime=1000.0),
-            Mock(st_mtime=2000.0),
-        ]
-
-        mock_parser = Mock()
-        info_v1 = TemplateInfo(
-            name="demo.glabels",
-            format_type="CSV",
-            has_headers=True,
-            fields=["CODE"],
-            field_count=1,
-            merge_type="Text/Comma/Line1Keys",
-        )
-        info_v2 = TemplateInfo(
-            name="demo.glabels",
-            format_type="CSV",
-            has_headers=True,
-            fields=["CODE", "ITEM"],
-            field_count=2,
-            merge_type="Text/Comma/Line1Keys",
-        )
-        mock_parser.parse_template_info.side_effect = [info_v1, info_v2]
-        mock_get_parser.return_value = mock_parser
-
-        with (
-            patch.object(
-                service, "_resolve_template_path", return_value=mock_template_path
-            ),
-            patch.object(service, "_detect_format", return_value="csv") as mock_detect,
-        ):
-            result1 = service.get_template_info("demo.glabels")
-            result2 = service.get_template_info("demo.glabels")
-
-        assert result1 == info_v1
-        assert result2 == info_v2
-        assert mock_detect.call_count == 2
-        assert mock_parser.parse_template_info.call_count == 2
-
-    @patch("app.services.template_service.Path.exists")
-    def test_get_template_info_not_found(self, mock_exists, service):
-        """Should raise FileNotFoundError when template doesn't exist."""
-        mock_exists.return_value = False
-
-        with pytest.raises(FileNotFoundError, match="Template file not found"):
-            service.get_template_info("missing.glabels")
-
-    def test_get_template_info_rejects_path_traversal(self, service):
-        """Should reject template names with path separators."""
-        with pytest.raises(ValueError, match="must not include path separators"):
-            service.get_template_info("../secrets.glabels")
-
-    @patch("gzip.open")
-    @patch("defusedxml.ElementTree.fromstring")
-    def test_detect_format_csv(self, mock_fromstring, mock_gzip_open, service):
-        """Should detect CSV format for comma-based merge types."""
-        # Mock XML content
-        mock_root = Mock()
-        mock_merge = Mock()
-        mock_merge.get.return_value = "Text/Comma/Line1Keys"
-        mock_root.find.return_value = mock_merge
-        mock_fromstring.return_value = mock_root
-
-        mock_gzip_open.return_value.__enter__.return_value.read.return_value = (
-            "<xml>content</xml>"
-        )
-
-        result = service._detect_format(Path("demo.glabels"))
-
-        assert result == "csv"
-
-    @patch("gzip.open")
-    @patch("defusedxml.ElementTree.fromstring")
-    def test_detect_format_unsupported(self, mock_fromstring, mock_gzip_open, service):
-        """Should raise ValueError for unsupported merge type."""
-        # Mock XML content
-        mock_root = Mock()
-        mock_merge = Mock()
-        mock_merge.get.return_value = "UnsupportedType"
-        mock_root.find.return_value = mock_merge
-        mock_fromstring.return_value = mock_root
-
-        mock_gzip_open.return_value.__enter__.return_value.read.return_value = (
-            "<xml>content</xml>"
-        )
-
-        with pytest.raises(ValueError, match="Unsupported merge type"):
-            service._detect_format(Path("demo.glabels"))
+def test_catalog_rejects_symlink_escape(tmp_path):
+    root = tmp_path / "templates"
+    root.mkdir()
+    outside = tmp_path / "outside.glabels"
+    outside.write_text("opaque")
+    try:
+        (root / "escape.glabels").symlink_to(outside)
+    except OSError:
+        pytest.skip("Creating symlinks requires platform permission")
+    assert TemplateService(root).list_templates() == []

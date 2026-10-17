@@ -1,234 +1,156 @@
-"""
-glabels_engine.py
-=================
-
-Asynchronous wrapper for gLabels CLI (`glabels-3-batch`).
-
-Design principles
------------------
-- Single responsibility: Only handles execution of "CSV + gLabels template → PDF".
-- Encapsulation: `GlabelsEngine` manages binary path, concurrency control, and default timeout.
-- Async/await: Uses asyncio, non-blocking for FastAPI / Starlette event loop.
-- Clear error handling: Provides base `GlabelsRunError` and specific subclasses for timeout and execution failures.
-- Caller responsibility:
-    - Must prepare CSV and gLabels template file in advance.
-    - Must ensure the output directory exists (this utility **will not** create it).
-- Separation of concerns:
-    - utils (this file): focuses on process execution and error reporting.
-    - service/API layer: handles JSON→CSV conversion, file cleanup policy, and URL exposure.
-
-Notes
------
-- Logging is done with loguru; log format remains consistent with the project.
-- f-string is used throughout to avoid string concatenation pitfalls.
-"""
-
-from __future__ import annotations
+"""Common GTK/Qt argv adapter with bounded diagnostics and owned cleanup."""
 
 import asyncio
 import contextlib
+import os
+import shutil
+import signal
+import sys
 from asyncio.subprocess import Process
-from collections.abc import Sequence
 from pathlib import Path
 
-from loguru import logger
-
-# Type alias: PathLike can be str or pathlib.Path
-PathLike = str | Path
-
-__all__ = [
-    "GlabelsRunError",
-    "GlabelsTimeoutError",
-    "GlabelsExecutionError",
-    "GlabelsEngine",
-]
+from app.services.pdf_merger import WorkerUnavailable
+from app.utils.tasks import owned, settle
 
 
-# Error classes
 class GlabelsRunError(RuntimeError):
-    """Base error for glabels-3-batch execution, carries returncode and stderr."""
-
-    def __init__(
-        self,
-        message: str,
-        rc: int | None = None,
-        stderr: str | None = None,
-        stdout: str | None = None,
-    ):
-        super().__init__(message)
-        self.returncode = rc  # Subprocess return code (may be None if timeout)
-        self.stderr = stderr or ""  # Captured stderr from the subprocess (may be empty)
-        self.stdout = stdout or ""  # Captured stdout from the subprocess (may be empty)
+    pass
 
 
 class GlabelsTimeoutError(GlabelsRunError):
-    """Raised when glabels-3-batch execution exceeds timeout."""
-
-    def __init__(self, timeout: float | None):
-        super().__init__(
-            f"glabels execution timed out after {timeout}s", rc=None, stderr="timeout"
-        )
-        self.timeout = timeout
+    pass
 
 
-class GlabelsExecutionError(GlabelsRunError):
-    """Raised when glabels-3-batch exits with non-zero code or PDF output is missing."""
-
-    def __init__(self, rc: int, stderr: str, stdout: str = ""):
-        super().__init__(
-            f"glabels execution failed (rc={rc})",
-            rc=rc,
-            stderr=stderr,
-            stdout=stdout,
-        )
-
-
-# Engine
 class GlabelsEngine:
-    """
-    Asynchronous engine for running gLabels batch printing.
-
-    - Controls concurrency using a semaphore to limit child processes.
-    - Does not generate CSV; caller must supply it.
-    - Does not create output directories; caller must ensure paths are valid.
-    """
-
     def __init__(
         self,
         *,
-        glabels_bin: str | Path = "glabels-3-batch",
-        max_parallel: int = 1,
-        default_timeout: float | None = None,
-    ):
-        self.glabels_bin = f"{glabels_bin}"  # CLI binary path
-        self._semaphore = asyncio.Semaphore(
-            max(1, int(max_parallel))
-        )  # Concurrency control
-        self.default_timeout = default_timeout  # Default timeout (can be overridden)
+        glabels_bin: str = "glabels-3-batch",
+        default_timeout: float = 600,
+        reap_timeout: float = 5,
+    ) -> None:
+        self.glabels_bin = glabels_bin
+        self.default_timeout = default_timeout
+        self.reap_timeout = reap_timeout
+        self.healthy = True
 
-    async def _communicate_with_timeout(
-        self, proc: Process, timeout: float | None
-    ) -> tuple[bytes, bytes]:
-        """
-        Wait for subprocess to finish, with optional timeout.
-        If timeout occurs, the process will be killed and awaited to avoid zombies.
-        """
-        try:
-            return await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-                await proc.wait()
-            raise GlabelsTimeoutError(timeout)
+    def verify(self) -> None:
+        if shutil.which(self.glabels_bin) is None:
+            raise FileNotFoundError("Configured GLABELS_EXECUTABLE is unavailable")
 
     async def run_batch(
-        self,
-        *,
-        output_pdf: PathLike,
-        template_path: PathLike,
-        csv_path: PathLike,
-        extra_args: Sequence[str] = (),
-        timeout: float | None = None,
-        log_truncate: int = 4096,  # Maximum log size to prevent flooding
-    ) -> tuple[int, str, str]:
-        """
-        Execute glabels-3-batch with CSV + template to generate a PDF.
+        self, *, output_pdf: Path, template_path: Path, csv_path: Path, copies: int = 1
+    ) -> None:
+        await owned(
+            asyncio.create_task(self._run(output_pdf, template_path, csv_path, copies))
+        )
 
-        Example command:
-            glabels-3-batch -o output.pdf -i data.csv template.glabels
+    async def _read(self, stream: asyncio.StreamReader | None) -> str:
+        if stream is None:
+            raise RuntimeError("Renderer diagnostic pipe unavailable")
+        tail = b""
+        while data := await stream.read(65536):
+            tail = (tail + data)[-4096:]
+        return tail.decode("utf-8", errors="replace")
 
-        Parameters
-        ----------
-        output_pdf : PathLike
-            Path for the output PDF (must be writable).
-        template_path : PathLike
-            Path to .glabels template file (must exist).
-        csv_path : PathLike
-            Path to CSV file (must exist, UTF-8).
-        extra_args : Sequence[str]
-            Additional CLI args, e.g. ["--copies=2"].
-        timeout : Optional[float]
-            Timeout in seconds; defaults to self.default_timeout if not specified.
-        log_truncate : int
-            Maximum number of characters to keep in logged stdout/stderr.
-
-        Returns
-        -------
-        tuple[int, str, str]
-            (returncode, stdout, stderr)
-
-        Raises
-        ------
-        FileNotFoundError
-            If template or CSV file does not exist.
-        GlabelsTimeoutError
-            If execution times out.
-        GlabelsExecutionError
-            If return code is non-zero or PDF file is missing.
-        """
-        out = Path(output_pdf)
-        tpl = Path(template_path)
-        csv = Path(csv_path)
-
-        # Safety check: Ensure input files exist
-        if not tpl.exists():
-            raise FileNotFoundError(f"gLabels template not found: {tpl}")
-        if not csv.exists():
-            raise FileNotFoundError(f"CSV file not found: {csv}")
-
-        # Build command line
-        cmd = [
-            f"{self.glabels_bin}",
-            "-o",
-            f"{out}",
-            "-i",
-            f"{csv}",
-            f"{tpl}",
-            *map(str, extra_args),
-        ]
-        logger.debug(f"running glabels: {' '.join(cmd)}")
-
-        # Determine effective timeout
-        effective_timeout = timeout if timeout is not None else self.default_timeout
-
-        # Limit concurrent processes
-        async with self._semaphore:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            except FileNotFoundError as e:
-                raise FileNotFoundError(
-                    f"glabels binary not found: {self.glabels_bin}"
-                ) from e
-            stdout_b, stderr_b = await self._communicate_with_timeout(
-                proc, timeout=effective_timeout
+    async def _stop(self, proc: Process) -> None:
+        if sys.platform != "win32":
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGTERM)
+            await asyncio.sleep(0.1)
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+        elif proc.returncode is None:
+            # Windows native CLI / compatible wrappers: stop only this owned
+            # child tree. Linux deployments use an isolated process group.
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill.exe",
+                "/PID",
+                str(proc.pid),
+                "/T",
+                "/F",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
+            try:
+                await asyncio.wait_for(killer.wait(), self.reap_timeout)
+            except TimeoutError:
+                killer.kill()
+                await killer.wait()
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+        try:
+            await asyncio.wait_for(proc.wait(), self.reap_timeout)
+        except TimeoutError as exc:
+            self.healthy = False
+            raise WorkerUnavailable("Renderer process exit not confirmed") from exc
 
-        rc = proc.returncode if proc.returncode is not None else -1
-        stdout = stdout_b.decode("utf-8", errors="ignore") if stdout_b else ""
-        stderr = stderr_b.decode("utf-8", errors="ignore") if stderr_b else ""
+    async def _terminate_and_drain(self, proc: Process) -> None:
+        readers = [
+            asyncio.create_task(self._read(proc.stdout)),
+            asyncio.create_task(self._read(proc.stderr)),
+        ]
+        try:
+            await self._stop(proc)
+            # A Windows proactor transport can outlive wait() if its pipe EOF
+            # callbacks were abandoned by cancelling the original readers.
+            await asyncio.wait_for(asyncio.gather(*readers), self.reap_timeout)
+        except BaseException as exc:
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            self.healthy = False
+            raise WorkerUnavailable(
+                "Renderer exit or pipe cleanup not confirmed"
+            ) from exc
 
-        # Guard: Sometimes rc=0 but file is not yet flushed to disk
-        if rc == 0 and not out.exists():
-            for _ in range(5):  # Retry for up to 0.5s
-                await asyncio.sleep(0.1)
-                if out.exists():
-                    break
-
-        # Failure condition: rc != 0 or PDF not created
-        if rc != 0 or not out.exists():
-            raise GlabelsExecutionError(rc=rc, stderr=stderr, stdout=stdout)
-
-        # Success logging
-        logger.info(f"glabels done → {out}")
-        if stdout:
-            chunk = stdout.strip()[:log_truncate]
-            logger.debug(f"glabels stdout (truncated):\n{chunk}")
-        if stderr:
-            chunk = stderr.strip()[:log_truncate]
-            logger.debug(f"glabels stderr (truncated):\n{chunk}")
-
-        return rc, stdout, stderr
+    async def _run(self, output: Path, template: Path, data: Path, copies: int) -> None:
+        output, template, data = output.resolve(), template.resolve(), data.resolve()
+        if not template.is_file() or not data.is_file():
+            raise FileNotFoundError("Template or CSV is missing")
+        command = [
+            self.glabels_bin,
+            "-o",
+            str(output),
+            "-i",
+            str(data),
+            f"--copies={copies}",
+            str(template),
+        ]
+        spawn = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                *command,
+                cwd=template.parent,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+        )
+        try:
+            proc = await asyncio.shield(spawn)
+        except asyncio.CancelledError:
+            proc = await settle(spawn)
+            await self._terminate_and_drain(proc)
+            raise
+        readers = [
+            asyncio.create_task(self._read(proc.stdout)),
+            asyncio.create_task(self._read(proc.stderr)),
+        ]
+        try:
+            async with asyncio.timeout(self.default_timeout):
+                await proc.wait()
+                stdout, stderr = await asyncio.gather(*readers)
+        except BaseException as exc:
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            await self._terminate_and_drain(proc)
+            if isinstance(exc, TimeoutError):
+                raise GlabelsTimeoutError("Renderer deadline exceeded") from exc
+            raise
+        if proc.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
+            # Full details are bounded here; the public job error is sanitized.
+            raise GlabelsRunError(
+                f"Renderer failed (rc={proc.returncode}): {stderr or stdout}"
+            )

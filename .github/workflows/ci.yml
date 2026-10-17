@@ -2,105 +2,70 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, feature/* ]
+    branches: [main, develop, 'feature/**', 'refactor/**']
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
+  checks:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-      - name: Lint with ruff
-        run: |
-          ruff check app/ tests/
-
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-      - name: Type check with mypy
-        run: |
-          mypy app/
-
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install bandit
-      - name: Security scan with bandit
-        run: |
-          bandit -c pyproject.toml -r app/
-
-  test:
-    runs-on: ubuntu-latest
-    needs: [ lint, typecheck, security ]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y glabels glabels-data
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-      - name: Run tests with coverage
-        run: |
-          pytest --cov-report=xml
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+          python-version: '3.14.8'
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check app tests
+      - run: python -m ruff format --check app tests
+      - run: python -m mypy app
+      - run: python -m bandit -c pyproject.toml -r app
+      - run: python -m pip check
+      - name: Audit pinned Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: python -m pip_audit -r constraints-linux.txt --no-deps --disable-pip
+      - run: python -m pytest --cov-report=xml
+      - uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
 
-  docker-build:
+  renderer-containers:
+    needs: checks
     runs-on: ubuntu-latest
-    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [test, qt-test]
     steps:
-      - uses: actions/checkout@v4
-      - name: Build Docker image
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build --target ${{ matrix.target }} -t labels-test .
+      - run: docker run --rm --cpus 4 --memory 2g labels-test pytest --cov-report=xml
+
+  runtime-smoke:
+    needs: renderer-containers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build -t labels-runtime .
+      - name: Readiness and graceful stop
         run: |
-          docker build -t glabels-batch-service:latest .
-      - name: Test Docker container
+          docker run -d --name labels-ci-runtime --cpus 2 --memory 1g -p 127.0.0.1:18000:8000 labels-runtime
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:18000/ready; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18000/ready
+          docker stop --time 60 labels-ci-runtime
+          test "$(docker inspect --format '{{.State.ExitCode}}' labels-ci-runtime)" = 0
+      - name: Logs and teardown
+        if: always()
         run: |
-          docker run --rm -d --name test-container -p 8000:8000 glabels-batch-service:latest
-          sleep 10
-          
-          # Test health endpoint
-          echo "Testing /health endpoint..."
-          curl -f http://localhost:8000/health || exit 1
-          
-          # Test root endpoint
-          echo "Testing / endpoint..."
-          curl -f http://localhost:8000/ || exit 1
-          
-          # Test templates endpoint
-          echo "Testing /labels/templates endpoint..."
-          curl -f http://localhost:8000/labels/templates || exit 1
-          
-          docker stop test-container
-          echo "All Docker tests passed!"
+          docker logs labels-ci-runtime || true
+          docker rm -f labels-ci-runtime || true

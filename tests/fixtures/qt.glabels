@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<Glabels-document version="4.0">
+  <Template brand="Service fixture" part="One per page" size="US-Letter">
+    <Label-rectangle id="0" width="612pt" height="792pt" round="0pt">
+      <Markup-margin size="10pt"/>
+      <Layout nx="1" ny="1" x0="0pt" y0="0pt" dx="612pt" dy="792pt"/>
+    </Label-rectangle>
+  </Template>
+  <Objects id="0" rotate="false">
+    <Object-text x="20pt" y="20pt" w="550pt" h="70pt"
+      font_family="Noto Sans CJK TC" font_size="16" font_weight="normal"
+      align="left" color="0x000000ff" a0="1" a1="0" a2="0" a3="1" a4="0" a5="0">
+      <p>${ITEM}</p>
+    </Object-text>
+    <Object-barcode x="20pt" y="120pt" w="250pt" h="70pt" style="code39"
+      backend="" data="${CODE}" text="true" checksum="false" color="0x000000ff"
+      a0="1" a1="0" a2="0" a3="1" a4="0" a5="0"/>
+  </Objects>
+  <Merge type="Text/Comma/Line1Keys" src="named.csv"/>
+  <Data/>
+</Glabels-document>

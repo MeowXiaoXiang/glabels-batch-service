@@ -13,7 +13,11 @@ from loguru import logger
 from app.config import settings
 
 
-def setup_logger(level: str | None = None, log_format: str | None = None) -> Any:
+def setup_logger(
+    level: str | None = None,
+    log_format: str | None = None,
+    directory: str | None = None,
+) -> Any:
     """
     Initialize global logger.
     :param level: log level (DEBUG / INFO / WARNING / ERROR)
@@ -69,7 +73,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
             )
 
     # Ensure log directory exists (configurable via settings.LOG_DIR)
-    log_dir = Path(settings.LOG_DIR or "logs")
+    log_dir = Path(directory or settings.LOG_DIR or "logs")
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:

@@ -110,6 +110,7 @@ dmypy.json
 # Generated PDFs and temp files
 output/
 temp/
+state/
 
 # Ignore everything in templates/ except the README (keep README tracked)
 templates/*

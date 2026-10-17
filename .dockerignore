@@ -22,6 +22,8 @@
 output/
 logs/
 temp/
+state/
+research/
 
 # Python
 __pycache__/
@@ -49,7 +51,6 @@ ENV/
 env/
 
 # Tests
-tests/
 test_data/
 *.test
 .hypothesis/

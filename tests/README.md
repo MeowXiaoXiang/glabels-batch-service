@@ -1,81 +1,41 @@
-# Test Suite
+# Tests
 
-Unit tests for glabels-batch-service, focusing on core functionality and business logic.
+Use Python 3.14+ and `python -m pip install -r requirements-dev.txt`.
 
-## Quick Start
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=app --cov-report=html
-
-# Specific test
-pytest tests/test_glabels_engine.py -v
+```sh
+python -m pytest
+python -m ruff check app tests
+python -m ruff format --check app tests
+python -m mypy app
+python -m bandit -c pyproject.toml -r app
+python -m pip check
 ```
 
-## Test Coverage: 76 Tests
+Tests cover shared weighted capacity/reserve/fairness, cancelled leases, real
+spawn-worker timeout/crash/reap/recovery, native renderer process cleanup,
+CSV/scalar/path contracts, SQLite ownership/constraints/expiry, restart
+reconciliation, bounded admission, download/cleanup ownership and API/SSE.
+The temporary paths and service settings are isolated from deployment data.
 
-| Test File | Tests | Purpose |
-|-----------|-------|---------|
-| `test_glabels_engine.py` | 7 | CLI wrapper and subprocess handling |
-| `test_job_manager.py` | 8 | Job lifecycle and worker management |
-| `test_template_service.py` | 7 | Template discovery and parsing |
-| `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 22 | API validation, template endpoints, error handling |
-| `test_cpu_detect.py` | 12 | Container-aware CPU detection (cgroup v2/v1) |
-| `test_integration.py` | 4 | End-to-end workflows |
+`test_integration.py` calls real GTK/Qt binaries through the entire API pipeline:
+named CSV, CJK, multiple render batches, ordered pikepdf merge, page geometry,
+barcode decoding, download and restart under the same ID. It skips a renderer
+explicitly if unavailable on the host. Container tests supply those binaries:
 
-## Key Test Areas
+```sh
+docker build --target test -t labels-test .
+docker run --rm --cpus 4 --memory 2g labels-test
+docker build --target qt-test -t labels-qt-test .
+docker run --rm --cpus 4 --memory 2g labels-qt-test
+```
 
-### GlabelsEngine (`test_glabels_engine.py`)
+The default production build excludes test dependencies. Test stage includes
+tests/fixtures and Poppler/zbar; qt-test additionally compiles the fixed upstream
+revision from Dockerfile. Fixtures are authored here, without parsing production
+templates. A Windows host without symlink permission skips the symlink test;
+Linux container tests exercise it.
 
-- Successful PDF generation via CLI
-- Error handling and timeout scenarios
-- Missing file detection
-- Output truncation for long errors
-
-### JobManager (`test_job_manager.py`)
-
-- Job submission and queuing
-- Async worker processing
-- Job completion and failure tracking
-- Automatic cleanup (retention policy)
-
-### TemplateService (`test_template_service.py`)
-
-- Template discovery in directories
-- Field extraction from `.glabels` files
-- Format detection (CSV/TSV)
-- Invalid template handling
-
-### LabelPrintService (`test_label_print.py`)
-
-- JSON to CSV conversion
-- Field ordering consistency
-- Batch splitting (respects `MAX_LABELS_PER_BATCH`)
-- PDF merging for multi-batch jobs
-- Temporary file cleanup
-
-### API Endpoints (`test_api_endpoints.py`)
-
-- Request validation (template name, data format)
-- Template list returns TemplateSummary format (no detail fields)
-- Template detail returns full TemplateInfo with fields
-- Template limit parameter behavior
-- Error responses (404, 409, 410)
-- Schema validation
-
-### Integration Tests (`test_integration.py`)
-
-- Full workflow: template → job → PDF
-- Component interaction
-- Error propagation
-
-## Testing Philosophy
-
-- **Fast execution**: Complete suite runs in <1 second
-- **Mock external dependencies**: Filesystem, subprocess, network
-- **Test business logic**: Focus on critical functionality, not framework features
-- **Easy maintenance**: Clear test names and focused assertions
+Short tests/accelerated retention cycles do not establish a production capacity
+SLA or substitute for longer workload and printer acceptance testing. Coverage
+of spawn-child PDF operations is supplemented by direct worker behavior tests;
+parent-only coverage is not a claim that native code was untested.

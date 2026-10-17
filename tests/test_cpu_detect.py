@@ -19,7 +19,33 @@ from app.utils.cpu_detect import (
     _read_cgroup_v1,
     _read_cgroup_v2,
     get_available_cpus,
+    get_cpu_capacity,
 )
+
+
+@pytest.mark.parametrize(
+    "host,process,affinity,v2,v1,expected",
+    [
+        (16, 8, 4, None, None, 4),
+        (16, 8, 4, 1.5, None, 1.5),
+        (16, 8, 4, 0.5, None, 0.5),
+        (16, 8, 4, 8, 2, 2),
+        (4, 16, 8, None, None, 4),
+    ],
+)
+def test_effective_capacity_uses_smallest_limit_and_preserves_fraction(
+    monkeypatch, host, process, affinity, v2, v1, expected
+):
+    import app.utils.cpu_detect as module
+
+    monkeypatch.setattr(module.os, "cpu_count", lambda: host)
+    monkeypatch.setattr(module.os, "process_cpu_count", lambda: process)
+    monkeypatch.setattr(
+        module.os, "sched_getaffinity", lambda pid: set(range(affinity)), raising=False
+    )
+    monkeypatch.setattr(module, "_read_cgroup_v2", lambda: v2)
+    monkeypatch.setattr(module, "_read_cgroup_v1", lambda: v1)
+    assert get_cpu_capacity() == expected
 
 
 # ---------------------------------------------------------------

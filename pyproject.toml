@@ -4,16 +4,16 @@
 
 [project]
 name = "glabels-batch-service"
-version = "2.0.0"
+version = "3.0.0"
 description = "FastAPI microservice for batch label printing using gLabels"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = {text = "MIT"}
 
 # =============================================================================
 # Ruff - Linter & Formatter
 # =============================================================================
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -34,15 +34,12 @@ ignore = [
 # Mypy - Type Checking
 # =============================================================================
 [tool.mypy]
-python_version = "3.12"
+plugins = ["pydantic.mypy"]
+python_version = "3.14"
 strict = true
 no_implicit_reexport = true
 warn_return_any = true
 warn_unused_configs = true
-
-[[tool.mypy.overrides]]
-module = "defusedxml.*"
-ignore_missing_imports = true
 
 # =============================================================================
 # Pytest - Testing
@@ -50,6 +47,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "error::ResourceWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
 addopts = [
     "-v",
     "--cov=app",

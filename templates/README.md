@@ -1,47 +1,28 @@
-# Templates Directory
+# Template contract
 
-Place your **gLabels template files** (.glabels) here for the label printing service.
+Put deployment-provided `.glabels` files here. The service lists safe basenames
+and verifies existence/path boundaries; only the configured gLabels renderer
+opens and interprets them. A template must be compatible with that renderer.
 
-## Quick Start
+Configure templates for UTF-8 comma-separated data with **named fields from the
+first header row**. JSON keys become CSV column names in first-appearance order
+across the complete request. Null/missing values are empty; booleans use
+`true`/`false`; quotes/newlines are escaped by Python's CSV writer. The service
+does not infer header modes, validate template field semantics or convert files.
 
-1. **Add your template file:**
+The renderer runs with the template directory as its working directory, with
+absolute CSV/output paths. Relative assets can be deployed alongside templates.
+Only `.glabels` basenames are catalogued; symlinks escaping this directory and
+API path traversal are rejected.
 
-   ```text
-   templates/
-   └── your_template.glabels
-   ```
+Keep templates/assets unchanged while jobs are running. Drain before updating a
+template bundle; completed PDFs are retained independently, but active jobs do not
+snapshot or version the deployment's template and asset directory.
 
-2. **Use in API:**
+Each render batch starts a new page. Copies and template variables use native
+renderer behavior per invocation. Supply continuous identifiers in the data.
+Keep fonts/assets available in the deployed runtime and verify printed layout
+and barcode readability with your actual template/printer.
 
-   ```json
-   {
-     "template_name": "your_template.glabels",
-     "data": [
-       {"FIELD1": "Value1", "FIELD2": "Value2"}
-     ]
-   }
-   ```
-
-## Requirements
-
-- **Field mapping**: JSON keys must match template field names exactly (case-sensitive)
-- **File format**: .glabels extension required
-- **Encoding**: Use UTF-8 for non-ASCII characters (Chinese, etc.)
-- **Testing**: Verify template in gLabels desktop app before uploading
-
-## Example
-
-If your template defines fields `CODE` and `ITEM`:
-
-```json
-{
-  "template_name": "demo.glabels",
-  "data": [
-    {"CODE": "A001", "ITEM": "Product A"},
-    {"CODE": "A002", "ITEM": "Product B"}
-  ],
-  "copies": 1
-}
-```
-
-List available templates: `GET /labels/templates`
+The authored GTK/Qt fixtures in `tests/fixtures` demonstrate the service CSV
+contract; they do not imply arbitrary GTK and Qt templates are interchangeable.

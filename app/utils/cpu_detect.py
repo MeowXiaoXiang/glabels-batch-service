@@ -34,10 +34,10 @@ def _read_cgroup_v2() -> float | None:
         if len(parts) != 2 or parts[0] == "max":
             return None
         quota, period = int(parts[0]), int(parts[1])
-        if period <= 0:
+        if quota <= 0 or period <= 0:
             return None
         return quota / period
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 
@@ -50,7 +50,7 @@ def _read_cgroup_v1() -> float | None:
         if quota <= 0 or period <= 0:
             return None
         return quota / period
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 
@@ -85,3 +85,20 @@ def get_available_cpus() -> int:
         host_cpus,
     )
     return host_cpus
+
+
+def get_cpu_capacity() -> float:
+    """Minimum of visible CPU count, affinity and fractional cgroup quotas."""
+    candidates = [float(os.cpu_count() or 1)]
+    process_count = os.process_cpu_count()
+    if process_count:
+        candidates.append(float(process_count))
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            candidates.append(float(len(os.sched_getaffinity(0))))
+        except OSError:
+            pass
+    for quota in (_read_cgroup_v2(), _read_cgroup_v1()):
+        if quota is not None and quota > 0:
+            candidates.append(quota)
+    return min(c for c in candidates if c > 0)
