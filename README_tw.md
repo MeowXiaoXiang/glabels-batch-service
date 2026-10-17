@@ -19,6 +19,15 @@ curl.exe http://localhost:8000/ready
 
 Compose 會持久掛載 state、output、templates 與 logs。state 保存 SQLite，output 保存 final，兩者都要保留。每個 store 只支援一個服務實例、一個 Uvicorn worker；第二個 owner 會被拒絕，不能直接加 workers 擴充。
 
+本機已裝好 renderer 時，使用 uv 0.12.10（需要安裝時可執行 `python -m pip install uv==0.12.10`）：
+
+```powershell
+uv sync --locked --no-dev
+uv run --locked --no-dev python -m app.main
+```
+
+已驗證的 runtime 為 Python 3.14。uv 將依賴裝入專案自己的 `.venv`，不修改系統 Python 套件；使用 Docker 時不需要在主機另外裝 uv。
+
 ## GTK／Qt 切換
 
 **一個服務實例只使用一種 renderer**，在部署時統一選定。API 不提供逐請求選 GTK／Qt，同一個 job 也不混用兩套。
@@ -112,6 +121,10 @@ queue、inflight、request、records×copies、batch、PDF pages／bytes、works
 SIGTERM 先停止接單並 drain，超過期限再停止及回收子程序。`/health` 是存活檢查，`/ready` 是可接工作檢查；容量滿回503、過大 body 回413。一般 process／container restart 已納入保存契約，突然斷電的 volume 耐久度需另外驗證。
 
 ## 驗證與升級
+
+依賴與工具設定集中在 `pyproject.toml`：正式依賴放 `project.dependencies`，開發工具放 `dependency-groups.dev`。`uv.lock` 由工具產生並一起進 Git，鎖住 Windows／Linux 所需的間接版本與套件雜湊，不手動維護另一份 txt。
+
+開發環境執行 `uv sync --locked`，測試用 `uv run --locked python -m pytest`。CI／Docker 同樣使用 `--locked`；宣告與 lock 不一致就失敗，正式部署加上 `--no-dev`。Python／uv 建置映像固定 digest，正式服務直接啟動 Uvicorn，uv 僅在安裝時掛載。gLabels、Qt／GTK、字型與 OS 套件仍由 Docker 管理；依賴更新方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 使用 [tests/README.md](tests/README.md) 的品質檢查與 GTK／Qt container tests。正式 image 不放 research、tests、Qt 編譯工具、qpdf CLI 或模板 parser。
 

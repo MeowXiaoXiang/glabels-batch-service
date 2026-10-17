@@ -1,14 +1,16 @@
 # Tests
 
-Use Python 3.14+ and `python -m pip install -r requirements-dev.txt`.
+Use Python 3.14 (the tested runtime) and uv 0.12.10. Install uv if needed with
+`python -m pip install uv==0.12.10`, then sync the committed lockfile:
 
 ```sh
-python -m pytest
-python -m ruff check app tests
-python -m ruff format --check app tests
-python -m mypy app
-python -m bandit -c pyproject.toml -r app
-python -m pip check
+uv sync --locked
+uv run --locked python -m pytest
+uv run --locked python -m ruff check app tests
+uv run --locked python -m ruff format --check app tests
+uv run --locked python -m mypy app
+uv run --locked python -m bandit -c pyproject.toml -r app
+uv pip check
 ```
 
 Tests cover shared weighted capacity/reserve/fairness, cancelled leases, real

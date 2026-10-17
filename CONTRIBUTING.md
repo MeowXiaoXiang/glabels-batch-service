@@ -1,5 +1,48 @@
 # Contributing
 
+## Dependencies and local environment
+
+Use Python 3.14 and uv 0.12.10, the version required by `pyproject.toml` and used
+by CI and Docker. If uv is not installed, run
+`python -m pip install uv==0.12.10`. From the repository root:
+
+```sh
+uv sync --locked
+uv run --locked python -m pytest
+uv pip check
+```
+
+uv creates the project's `.venv`; do not commit it or share it with another
+project. Runtime dependencies belong in `[project].dependencies`; development
+tools belong in `[dependency-groups].dev`. Keep tool settings in the same
+`pyproject.toml`. Commit `uv.lock` with every dependency change and let uv update
+it; do not edit it manually or maintain parallel requirements/constraints files.
+
+Use explicit versions when adding or upgrading a direct dependency:
+
+```sh
+uv add 'pikepdf==10.16.0'
+uv add --dev 'pytest==9.1.1'
+```
+
+Replace those versions with the intended upgrade. To update a transitive
+dependency within the declared constraints, use
+`uv lock --upgrade-package PACKAGE`. Review the lockfile diff. Run
+`uv sync --locked` and complete the checks in [tests/README.md](tests/README.md), including
+the affected renderer container tests. Review uv upgrades separately and update
+the required version, CI installer, Docker image digest, and documentation
+together. `--locked` must remain enabled in CI and Docker builds.
+
+Production installs use `uv sync --locked --no-dev`; a local production launch
+through uv also needs `uv run --locked --no-dev ...` to keep development tools
+excluded. Docker launches the installed Uvicorn directly. Renderer executables,
+Qt/GTK libraries, and fonts are managed by the deployment rather than uv.
+
+CI exports a temporary runtime requirements file from the lockfile for
+`pip-audit`. Such exports are generated integration artifacts, not another
+dependency source to commit. The lockfile records versions and artifact hashes;
+periodic dependency review is still needed for security updates.
+
 ## Commit messages
 
 Use English subjects and bodies, following the prevailing project history.

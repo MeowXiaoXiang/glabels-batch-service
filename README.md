@@ -27,9 +27,14 @@ queue. The default Compose limits are 4 CPUs and 2 GB memory.
 For an installed local renderer:
 
 ```sh
-python -m pip install -r requirements.txt
-python -m app.main
+uv sync --locked --no-dev
+uv run --locked --no-dev python -m app.main
 ```
+
+Local commands use uv 0.12.10; install that version if needed with
+`python -m pip install uv==0.12.10`. Docker includes the installation step and
+does not require uv on the host. Python 3.14 is the tested runtime; uv uses a
+project-local `.venv` without changing your system Python packages.
 
 Interactive documentation: `/docs`. `/health` is liveness; `/ready` indicates
 whether the coordinator can accept work. Oversized bodies return 413; invalid
@@ -230,13 +235,13 @@ restart; power-loss durability of the filesystem/volume requires separate testin
 ## Development
 
 ```sh
-python -m pip install -r requirements-dev.txt
-python -m pytest
-python -m ruff check app tests
-python -m ruff format --check app tests
-python -m mypy app
-python -m bandit -c pyproject.toml -r app
-python -m pip check
+uv sync --locked
+uv run --locked python -m pytest
+uv run --locked python -m ruff check app tests
+uv run --locked python -m ruff format --check app tests
+uv run --locked python -m mypy app
+uv run --locked python -m bandit -c pyproject.toml -r app
+uv pip check
 docker build --target test -t labels-test .
 docker run --rm --cpus 4 --memory 2g labels-test
 docker build --target qt-test -t labels-qt-test .
@@ -248,10 +253,14 @@ host; GTK/Qt container stages provide the corresponding binaries. See
 [tests/README.md](tests/README.md). The runtime image does not include research,
 tests, Qt build tools, pypdf, qpdf CLI or template XML parsers.
 
-The Docker base image is pinned by digest. `constraints-linux.txt` records the
-validated Python 3.14/Linux amd64 runtime resolution and is used during Docker
-installs; refresh it deliberately when upgrading dependencies. It is a version
-constraint set, not a hash lock or a Windows environment export.
+`pyproject.toml` declares runtime dependencies, the `dev` dependency group, and
+tool settings. Commit the generated `uv.lock` with dependency changes; it locks
+transitive versions and artifact hashes for Windows and Linux. CI and Docker use
+`--locked` and fail when the declarations and lockfile disagree. Production
+installs exclude the dev group and launch Uvicorn directly; uv is only mounted
+during installation. The Python and uv build images are pinned by digest.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dependency updates. gLabels, Qt/GTK,
+fonts, and other OS packages remain Docker-managed dependencies.
 
 Version 3 changes the API and environment configuration directly: `running`,
 template introspection fields, `MAX_PARALLEL` and `KEEP_CSV` are removed. Replace

@@ -1,12 +1,17 @@
 # Default production runtime: GTK. Qt is available in the opt-in qt-test stage.
+FROM ghcr.io/astral-sh/uv:0.12.10@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500 AS uv
+
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     glabels glabels-data fonts-dejavu fonts-noto-cjk curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY requirements.txt constraints-linux.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -c constraints-linux.txt && pip check
+ENV PATH="/app/.venv/bin:$PATH" UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
+COPY pyproject.toml uv.lock ./
+# uv is mounted only for installation; production runs Uvicorn directly.
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    uv sync --locked --no-dev --no-cache && uv pip check
 COPY app ./app
 COPY templates ./templates
 RUN mkdir -p output temp state logs && glabels-3-batch --help >/dev/null
@@ -18,8 +23,8 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--worker
 FROM runtime AS test
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils zbar-tools \
     && rm -rf /var/lib/apt/lists/*
-COPY requirements-dev.txt pyproject.toml ./
-RUN pip install --no-cache-dir -r requirements-dev.txt -c constraints-linux.txt && pip check
+COPY --from=uv /uv /usr/local/bin/uv
+RUN uv sync --locked --no-cache && uv pip check
 COPY tests ./tests
 CMD ["pytest", "--cov-report=xml"]
 

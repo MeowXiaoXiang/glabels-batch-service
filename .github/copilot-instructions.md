@@ -1,187 +1,57 @@
-<!-- .github/copilot-instructions.md
-Guidance for AI coding agents working on this repo.
-Keep concise, actionable, and project-specific.
--->
+# Agent guide — glabels-batch-service
 
-# Agent Guide — glabels-batch-service
+Read [README.md](../README.md), [CONTRIBUTING.md](../CONTRIBUTING.md), and
+[tests/README.md](../tests/README.md) for the supported behavior, dependency
+workflow, validation, and commit convention. A local commit does not authorize
+a push.
 
-## Project Overview
+## Environment and dependencies
 
-FastAPI microservice wrapping gLabels CLI: **JSON → CSV → gLabels Template → PDF**.
+- Use the existing local tools; Windows uses PowerShell. Docker provides the
+  GTK/Qt renderer test environments.
+- Use uv 0.12.10 and the committed `uv.lock`. `pyproject.toml` contains runtime
+  dependencies, the `dev` dependency group, and tool settings. Do not create a
+  parallel requirements or constraints file.
+- Run `uv sync --locked`, then `uv run --locked python -m pytest`, Ruff check and
+  format checks, Mypy, Bandit, and `uv pip check`. Follow the CI workflow for the
+  exported-lock runtime audit and container checks.
+- Host renderer tests skip explicitly if a binary is unavailable. Use fresh
+  `test` and `qt-test` Docker targets to exercise real GTK and Qt respectively.
+- Keep the version in `app/__init__.py` synchronized with `pyproject.toml`.
 
-Core flow: `app/main.py` → `JobManager` → `LabelPrintService` → `GlabelsEngine`
+## Architecture
 
-**Version**: Version number is hardcoded in `app/__init__.py` (`VERSION`) and must be kept in sync with `pyproject.toml`
+- `JobManager` owns admission and lifecycle; `job_pipeline.py` dispatches render
+  and merge work through the shared weighted CPU budget.
+- `job_store.py` persists minimal job metadata in SQLite. One instance and one
+  Uvicorn worker own a store. Completed IDs and downloads survive normal restart
+  until their original expiry; unfinished work is interrupted, not resumed.
+- `label_print.py` generates named-header CSV batches lazily. Copies and
+  `copy_order` are service-owned; every renderer invocation receives copies=1.
+  Multi-batch requests must declare `labels_per_page` for page alignment.
+- `glabels_engine.py` invokes the configured executable through argv without a
+  shell. One instance selects one GTK/Qt renderer or compatible wrapper.
+- `pdf_merger.py` manages isolated spawn workers; `pdf_worker.py` opens paths,
+  checks page counts, merges with pikepdf, and saves. Do not import native PDF
+  operations into the event loop or release leases before children are reaped.
+- Templates are opaque. `template_service.py` checks safe names and discovers
+  files; the renderer alone understands template content. Do not restore XML
+  parsing, format detection, or field introspection.
+- States are `pending → rendering → merging → done`, or `failed`. A single batch
+  can skip the merging state but still undergoes isolated PDF validation.
+- `output/<job_id>.pdf` is the only downloadable artifact. Temporary CSV/batch
+  PDFs are cleaned after actual operations stop. Keep state/output persistent.
 
-**Important**: When updating the version number, ensure to update it in `app/__init__.py`, `pyproject.toml`, **README.md**, and **README_tw.md** to keep them in sync.
+## Changes and verification
 
-## Key Files
-
-| File | Role |
-|------|------|
-| `app/main.py` | FastAPI app, lifespan manages JobManager, system endpoints |
-| `app/services/job_manager.py` | In-memory job store, asyncio queue, worker pool |
-| `app/services/label_print.py` | JSON→CSV, batch splitting, PDF merging |
-| `app/utils/glabels_engine.py` | Async subprocess wrapper for `glabels-3-batch` |
-| `app/utils/cpu_detect.py` | Container-aware CPU count (cgroup v2/v1 → os.cpu_count) |
-| `app/services/template_service.py` | Template discovery, format detection |
-| `app/parsers/__init__.py` | Parser factory (`get_parser()`) |
-| `app/parsers/base_parser.py` | Abstract base class for template parsers |
-| `app/parsers/csv_parser.py` | CSV format parser (header/no-header) |
-| `app/__init__.py` | Package metadata: `VERSION` (hardcoded, keep in sync with pyproject.toml), `SERVICE_NAME` |
-| `app/schema.py` | Pydantic models and validation |
-| `app/api/print_jobs.py` | All `/labels/*` endpoints |
-| `app/config.py` | pydantic-settings, all env vars |
-| `app/core/limiter.py` | Shared SlowAPI rate limiter instance |
-| `app/core/logger.py` | loguru logging setup |
-
-## Architecture & Conventions
-
-### Job Lifecycle
-
-- Jobs stored in memory (`JobManager.jobs`); no persistence layer.
-- Retention cleanup is time-based (`RETENTION_HOURS`).
-- Cleanup triggers: (1) startup, (2) after each job completes, (3) hourly via `_cleanup_scheduler`.
-
-### Concurrency (two layers)
-
-- `JobManager.max_parallel` — controls worker count
-- `GlabelsEngine` — semaphore for subprocess concurrency
-- Keep both in sync when modifying parallelism.
-
-### Parser Architecture
-
-- Factory pattern: `get_parser(format_type)` → returns `BaseParser` subclass
-- Currently only `CSVParser` (supports header and no-header CSV)
-- `TemplateService._detect_format` parses gzipped `.glabels` XML to choose parser
-- To add a new parser: subclass `BaseParser`, add case to `get_parser()` match
-
-### File Locations
-
-| Directory | Purpose | Notes |
-|-----------|---------|-------|
-| `templates/` | Read-only templates | `.glabels` files |
-| `output/` | Generated PDFs | `{template}_{timestamp}.pdf` |
-| `temp/` | Intermediate CSV | Retained only when `KEEP_CSV=true` |
-| `logs/` | Log files | Configurable via `LOG_DIR` |
-
-Do not hardcode absolute paths; always use these relative directories.
-
-## API Endpoints Reference
-
-### System (in `app/main.py`)
-
-- `GET /` — API root info (service, version, uptime, docs links)
-- `GET /health` — health check
-
-### Labels (in `app/api/print_jobs.py`, prefix `/labels`)
-
-- `POST /labels/print` — submit print job
-- `GET /labels/jobs` — list recent jobs (with `limit` param)
-- `GET /labels/jobs/{job_id}` — get job status
-- `GET /labels/jobs/{job_id}/stream` — SSE real-time status
-- `GET /labels/jobs/{job_id}/download` — download PDF (404/409/410)
-- `GET /labels/templates` — list all template summaries (no field details; see endpoint below for full schema)
-- `GET /labels/templates/{template_name}` — full template info including fields
-
-## Environment Variables
-
-All defined in `app/config.py`:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENVIRONMENT` | `development` / `production` (production blocks `RELOAD=true`) | `production` |
-| `HOST` / `PORT` | Server bind address | `0.0.0.0` / `8000` |
-| `RELOAD` | Auto-reload on code changes (dev only) | `false` |
-| `KEEP_CSV` | Retain temp CSV files for debugging | `false` |
-| `MAX_PARALLEL` | Worker count (0 = auto, cgroup-aware) | `0` |
-| `MAX_LABELS_PER_BATCH` | Labels per batch before auto-split and merge | `300` |
-| `MAX_LABELS_PER_JOB` | Max labels per request | `2000` |
-| `GLABELS_TIMEOUT` | **Per-batch** subprocess timeout in seconds | `600` |
-| `RETENTION_HOURS` | Job retention before cleanup | `24` |
-| `MAX_REQUEST_BYTES` | Request body size cap (bytes) | `5000000` |
-| `MAX_FIELDS_PER_LABEL` | Max fields per label record | `50` |
-| `MAX_FIELD_LENGTH` | Max length per field value | `2048` |
-| `LOG_LEVEL` | DEBUG / INFO / WARNING / ERROR | `INFO` |
-| `LOG_FORMAT` | Logging format (text/json) | `text` |
-| `LOG_DIR` | Log file directory | `logs` |
-| `REQUEST_ID_HEADER` | Request ID header name | `X-Request-ID` |
-| `RATE_LIMIT` | Rate limit for `/labels/print` | `60/minute` |
-| `ENABLE_METRICS` | Enable Prometheus `/metrics` endpoint | `true` |
-| `SHUTDOWN_TIMEOUT` | Graceful shutdown queue drain timeout (seconds) | `30` |
-| `CORS_ALLOW_ORIGINS` | Comma-separated allowed origins (empty = disabled) | `` |
-
-## Developer Workflows
-
-```bash
-# Local dev (Linux/WSL2)
-cp .env.example .env
-pip install -r requirements.txt
-sudo apt-get install glabels glabels-data
-python -m app.main
-
-# Docker (recommended)
-docker compose up -d
-
-# Tests (no gLabels binary needed)
-pytest tests/ -v
-
-# VS Code: press F5 (uses .vscode/launch.json)
-```
-
-## Test Suite (76 tests)
-
-| File | Tests | Focus |
-|------|-------|-------|
-| `test_glabels_engine.py` | 7 | Subprocess mock: success, failure, timeout |
-| `test_job_manager.py` | 8 | Job lifecycle, workers, cleanup |
-| `test_template_service.py` | 7 | Template discovery and parsing |
-| `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 22 | API validation, template endpoints, error responses |
-| `test_cpu_detect.py` | 12 | cgroup v2/v1 parsing, fallback to os |
-| `test_integration.py` | 4 | End-to-end workflows |
-
-## Patterns & Gotchas
-
-### Exception Types (preserve these)
-
-- `GlabelsRunError` — base class
-- `GlabelsTimeoutError` — per-batch timeout exceeded
-- `GlabelsExecutionError` — non-zero exit code
-- `FileNotFoundError` — template or output missing
-
-### Test Mocking
-
-- Tests monkeypatch `asyncio.create_subprocess_exec` and `jm.service.generate_pdf`
-- When changing `GlabelsEngine.run_batch` or JobManager worker semantics, update tests
-
-### Template Validation
-
-- Filenames must end with `.glabels`
-- Enforced in `LabelRequest` model and `TemplateService._resolve_template_path`
-
-### Logging
-
-- Uses `loguru` with custom setup in `app/core/logger.py`
-- Keep log message structure consistent for test assertions
-
-## Safety Rules for AI Edits
-
-1. **Do not change** public API routes or JSON model fields without updating `app/schema.py` and OpenAPI examples in `app/api/print_jobs.py`.
-2. **Preserve** exception classes and error messages used in tests.
-3. **Keep** default directories and env-driven flags.
-4. **Validate** that `ENVIRONMENT=production` + `RELOAD=true` is blocked (see `config.py:model_post_init`).
-
-## Common Implementation Patterns
-
-**Add a new endpoint that enqueues a job:**
-Mimic `app/api/print_jobs.py:submit_labels` — validate `LabelRequest`, call `job_manager.submit_job(req)`, return `JobSubmitResponse`.
-
-**Call glabels with extra args:**
-Use `LabelPrintService.generate_pdf(..., copies=n)` which passes `extra_args=["--copies=n"]` to `GlabelsEngine.run_batch`.
-
-**Add a new parser:**
-1. Create `app/parsers/new_parser.py`, subclass `BaseParser`
-2. Implement `parse_template_info()`
-3. Add case to `get_parser()` in `app/parsers/__init__.py`
-4. Update `TemplateService._detect_format` to detect the new format
+- Keep request/status models, API examples, both READMEs, and configuration
+  examples consistent when changing supported behavior.
+- Preserve bounded admission, process-tree cleanup, SQLite ownership,
+  publication/restart reconciliation, and download/expiry coordination.
+- Schema changes must preserve retained results through a transactional
+  migration and have behavior tests.
+- Configuration lives in `app/config.py`; use `.env.example` as the operator
+  reference. Avoid copying defaults into another table that can become stale.
+- Production Docker contains GTK and runtime Python dependencies. `qt-test`
+  includes both renderers for tests; changing an executable path does not
+  install the required Qt runtime, templates, fonts, or platform support.
