@@ -1,7 +1,6 @@
 """Bounded render batches, ordered isolated merge and parent publication."""
 
 import asyncio
-import math
 import os
 import shutil
 from pathlib import Path
@@ -9,7 +8,7 @@ from pathlib import Path
 from app.config import Settings
 from app.schema import JobProgress, LabelRequest
 from app.services.job_store import JobStore
-from app.services.label_print import fieldnames, write_csv
+from app.services.label_print import batch_rows, fieldnames, write_csv
 from app.services.pdf_merger import PdfMerger
 from app.services.resource_scheduler import ResourceScheduler
 from app.services.template_service import TemplateService
@@ -19,16 +18,30 @@ from app.utils.tasks import io
 
 
 def batch_shape(req: LabelRequest, settings: Settings) -> tuple[int, int]:
-    if settings.MAX_LABELS_PER_BATCH and req.copies > settings.MAX_LABELS_PER_BATCH:
-        raise ValueError("Copies exceed the per-batch effective label limit")
-    size = (
-        max(1, settings.MAX_LABELS_PER_BATCH // req.copies)
-        if settings.MAX_LABELS_PER_BATCH
-        else len(req.data)
-    )
-    count = math.ceil(len(req.data) / size)
+    total = len(req.data) * req.copies
+    if (
+        len(req.data) > settings.MAX_LABELS_PER_JOB
+        or req.copies > settings.MAX_COPIES
+        or total > settings.MAX_EFFECTIVE_LABELS
+    ):
+        raise ValueError("Record, copies or effective label limit exceeded")
+    limit = settings.MAX_LABELS_PER_BATCH
+    size = total
+    if limit and total > limit:
+        if req.labels_per_page is None:
+            raise ValueError("labels_per_page is required when a job needs batching")
+        size = limit // req.labels_per_page * req.labels_per_page
+        if size == 0:
+            raise ValueError("One declared page exceeds the per-batch label limit")
+    count = (total + size - 1) // size
     if count > settings.MAX_BATCHES_PER_JOB:
         raise ValueError("Batch count limit exceeded")
+    if (
+        req.labels_per_page is not None
+        and (total + req.labels_per_page - 1) // req.labels_per_page
+        > settings.MAX_PDF_PAGES
+    ):
+        raise ValueError("Declared PDF page count exceeds the page limit")
     return size, count
 
 
@@ -108,7 +121,7 @@ class JobPipeline:
                     csv_path = workspace / f"batch-{index:06d}.csv"
                     await io(
                         write_csv,
-                        req.data[index * size : (index + 1) * size],
+                        batch_rows(req, index * size, (index + 1) * size),
                         csv_path,
                         columns,
                     )
@@ -116,7 +129,7 @@ class JobPipeline:
                         output_pdf=paths[index],
                         template_path=template,
                         csv_path=csv_path,
-                        copies=req.copies,
+                        copies=1,
                     )
                     await io(self.check_space, workspace)
                     await io(csv_path.unlink)
@@ -128,8 +141,21 @@ class JobPipeline:
         if count > 1:
             await self.store.stage(job_id, "merging")
         assembled = workspace / "assembled.pdf"
+        expected_pages = (
+            [
+                (
+                    min(size, len(req.data) * req.copies - index * size)
+                    + req.labels_per_page
+                    - 1
+                )
+                // req.labels_per_page
+                for index in range(count)
+            ]
+            if req.labels_per_page is not None
+            else None
+        )
         async with await self.scheduler.acquire("merge", job_id):
-            await self.merger.merge(paths, assembled)
+            await self.merger.merge(paths, assembled, expected_pages=expected_pages)
         await io(self.check_space, workspace)
         await io(shutil.copyfile, assembled, staging)
         await self.store.intent(job_id)

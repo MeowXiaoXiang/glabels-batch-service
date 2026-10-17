@@ -26,7 +26,9 @@ async def test_pipeline_order_single_final_restart_and_expiry(
     manager = JobManager(cfg)
     await manager.start()
     request = LabelRequest(
-        template_name="demo.glabels", data=[{"ITEM": str(i)} for i in range(5)]
+        template_name="demo.glabels",
+        data=[{"ITEM": str(i)} for i in range(5)],
+        labels_per_page=1,
     )
     identifier = await manager.submit_job(request)
     job = await completed(manager, identifier)
@@ -58,6 +60,64 @@ async def test_pipeline_order_single_final_restart_and_expiry(
         assert await restored.store.rows("SELECT * FROM jobs") == []
     finally:
         await restored.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "order,expected", [("sets", "ABCDABCD"), ("per_record", "AABBCCDD")]
+)
+async def test_copy_policy_survives_batch_completion_order_and_restart(
+    service_settings, fake_renderer, order, expected
+):
+    cfg = service_settings
+    manager = JobManager(cfg)
+    await manager.start()
+    try:
+        identifier = await manager.submit_job(
+            LabelRequest(
+                template_name="demo.glabels",
+                data=[{"ITEM": x} for x in "ABCD"],
+                copies=2,
+                copy_order=order,
+                labels_per_page=1,
+            )
+        )
+        job = await completed(manager, identifier)
+        assert job.status == "done"
+        with pikepdf.open(cfg.OUTPUT_DIR / f"{identifier}.pdf") as pdf:
+            assert "".join(str(p.obj.ServiceItem) for p in pdf.pages) == expected
+        assert job.copy_order == order and job.labels_per_page == 1 and job.copies == 2
+    finally:
+        await manager.stop()
+    restored = JobManager(cfg)
+    await restored.start()
+    try:
+        job = await restored.get_job(identifier)
+        assert job.copy_order == order and job.labels_per_page == 1
+    finally:
+        await restored.stop()
+
+
+@pytest.mark.asyncio
+async def test_page_declaration_mismatch_never_publishes_a_final(
+    service_settings, fake_renderer
+):
+    manager = JobManager(service_settings)
+    await manager.start()
+    try:
+        identifier = await manager.submit_job(
+            LabelRequest(
+                template_name="demo.glabels",
+                data=[{"ITEM": x} for x in "ABC"],
+                labels_per_page=2,
+            )
+        )
+        assert (await completed(manager, identifier)).status == "failed"
+        assert list(service_settings.OUTPUT_DIR.iterdir()) == []
+        await manager._idle.wait()
+        assert list(service_settings.TEMP_DIR.iterdir()) == []
+    finally:
+        await manager.stop()
 
 
 @pytest.mark.asyncio

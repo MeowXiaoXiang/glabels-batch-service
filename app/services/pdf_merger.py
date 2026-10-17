@@ -60,10 +60,23 @@ class PdfMerger:
             await asyncio.to_thread(pool.kill_workers)
             raise
 
-    async def merge(self, paths: list[Path], destination: Path | None) -> int:
-        return await owned(asyncio.create_task(self._merge(paths, destination)))
+    async def merge(
+        self,
+        paths: list[Path],
+        destination: Path | None,
+        *,
+        expected_pages: list[int] | None = None,
+    ) -> int:
+        return await owned(
+            asyncio.create_task(self._merge(paths, destination, expected_pages))
+        )
 
-    async def _merge(self, paths: list[Path], destination: Path | None) -> int:
+    async def _merge(
+        self,
+        paths: list[Path],
+        destination: Path | None,
+        expected_pages: list[int] | None,
+    ) -> int:
         async with self._lock:
             if self._pool is None:
                 await self._start()
@@ -76,6 +89,7 @@ class PdfMerger:
                     str(destination) if destination is not None else None,
                     self.max_bytes,
                     self.max_pages,
+                    expected_pages,
                 )
                 wrapped = asyncio.wrap_future(future)
                 # wait() times out without cancelling the OS operation or its

@@ -99,6 +99,7 @@ def service_settings(tmp_path):
 @pytest.fixture
 def fake_renderer(monkeypatch):
     async def render(self, *, output_pdf, template_path, csv_path, copies=1):
+        assert copies == 1, "Only the service may expand copies"
         if template_path.read_bytes().startswith(b"bad"):
             raise GlabelsRunError("invalid fixture")
         # Finish later batches first; pipeline must still merge by batch index.

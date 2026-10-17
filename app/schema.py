@@ -11,6 +11,7 @@ from app.config import settings
 
 JobStatus = Literal["pending", "rendering", "merging", "done", "failed"]
 Scalar = str | int | float | bool | None
+CopyOrder = Literal["sets", "per_record"]
 
 
 def safe_template_name(name: str) -> str:
@@ -29,6 +30,8 @@ class LabelRequest(BaseModel):
     template_name: str
     data: list[dict[str, Scalar]] = Field(min_length=1)
     copies: int = Field(1, ge=1)
+    copy_order: CopyOrder = "sets"
+    labels_per_page: int | None = Field(None, ge=1)
 
     @model_validator(mode="after")
     def limits(self) -> Self:
@@ -79,6 +82,8 @@ class JobStatusResponse(BaseModel):
     template_name: str
     record_count: int
     copies: int
+    copy_order: Literal["sets", "per_record", "renderer_native"]
+    labels_per_page: int | None
     progress: JobProgress | None = None
     created_at: datetime
     started_at: datetime | None = None

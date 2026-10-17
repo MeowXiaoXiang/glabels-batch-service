@@ -17,10 +17,14 @@ def worker_identity() -> int:
 
 
 def assemble_pdf(
-    paths: list[str], destination: str | None, max_bytes: int, max_pages: int
+    paths: list[str],
+    destination: str | None,
+    max_bytes: int,
+    max_pages: int,
+    expected_pages: list[int] | None = None,
 ) -> int:
     try:
-        return _assemble_pdf(paths, destination, max_bytes, max_pages)
+        return _assemble_pdf(paths, destination, max_bytes, max_pages, expected_pages)
     except Exception as exc:
         # Native exception classes otherwise import pikepdf when unpickled in
         # the API process. Send only our small, pure-Python error boundary.
@@ -28,22 +32,34 @@ def assemble_pdf(
 
 
 def _assemble_pdf(
-    paths: list[str], destination: str | None, max_bytes: int, max_pages: int
+    paths: list[str],
+    destination: str | None,
+    max_bytes: int,
+    max_pages: int,
+    expected_pages: list[int] | None = None,
 ) -> int:
     """Validate inputs and concatenate pages in caller order in this process."""
     import pikepdf
 
     if not paths or sum(Path(p).stat().st_size for p in paths) > max_bytes:
         raise ValueError("PDF input size limit exceeded or no inputs")
+    if expected_pages is not None and (
+        len(expected_pages) != len(paths) or any(n <= 0 for n in expected_pages)
+    ):
+        raise ValueError("Invalid expected PDF page counts")
     page_count = 0
     with pikepdf.Pdf.new() as merged:
-        for path in paths:
+        for index, path in enumerate(paths):
             if Path(path).stat().st_size == 0:
                 raise ValueError("Empty PDF")
             with pikepdf.Pdf.open(path) as source:
                 count = len(source.pages)
                 if count == 0:
                     raise ValueError("PDF contains no pages")
+                if expected_pages is not None and count != expected_pages[index]:
+                    raise ValueError(
+                        "PDF page count does not match labels_per_page declaration"
+                    )
                 page_count += count
                 if page_count > max_pages:
                     raise ValueError("PDF page limit exceeded")

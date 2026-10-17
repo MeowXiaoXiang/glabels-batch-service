@@ -20,7 +20,15 @@ The temporary paths and service settings are isolated from deployment data.
 `test_integration.py` calls real GTK/Qt binaries through the entire API pipeline:
 named CSV, CJK, multiple render batches, ordered pikepdf merge, page geometry,
 barcode decoding, download and restart under the same ID. It skips a renderer
-explicitly if unavailable on the host. Container tests supply those binaries:
+explicitly if unavailable on the host.
+
+Eight additional real-renderer cases compare complete jobs with page-aligned
+batches for both copy orders and copies=1/2, on a three-slot-per-page fixture.
+They check each page's label sequence, including partial final pages. Unit/API
+tests reject missing or oversized page declarations, fail publication on PDF
+page-count mismatch, and preserve schema-v1 completed downloads after migration.
+
+Container tests supply those binaries:
 
 ```sh
 docker build --target test -t labels-test .

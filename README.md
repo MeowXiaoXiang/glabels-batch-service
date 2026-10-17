@@ -5,6 +5,8 @@ produces one final PDF; internal CSVs and batch PDFs are temporary.
 
 [繁體中文](README_tw.md)
 
+Contribution and commit message guidelines: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Run
 
 Requires Python 3.14 or newer and a working gLabels batch executable. The default
@@ -41,6 +43,21 @@ connections at 128.
 
 ## GTK / Qt
 
+Each service instance uses **one renderer**, selected globally at deployment.
+API requests do not select GTK/Qt, and a job never mixes renderers.
+
+Current Docker targets:
+
+| Build target | Installed renderers | Default command |
+|---|---|---|
+| `production` (default, including Compose) | GTK | API server |
+| `test` | GTK | pytest |
+| `qt-test` | GTK and Qt | pytest |
+
+The two renderers in `qt-test` are for compatibility testing. A dedicated Qt
+production target is not provided yet. The default GTK image cannot run Qt just
+by changing an environment variable; deploy the matching runtime first.
+
 Set `GLABELS_EXECUTABLE` to an executable name or path and restart:
 
 ```dotenv
@@ -49,7 +66,7 @@ GLABELS_EXECUTABLE=glabels-3-batch
 # GLABELS_EXECUTABLE=/opt/service/bin/glabels-wrapper
 ```
 
-The same adapter passes `-o`, `-i`, `--copies`, and the template path as separate
+The same adapter passes `-o`, `-i`, `--copies=1`, and the template path as separate
 arguments. Shell command strings are not supported. A compatible wrapper must
 forward arguments, exit codes and signals, and own its children. Install the Qt
 runtime, fonts and platform support first; changing a path does not install them.
@@ -62,10 +79,29 @@ parse, convert, or infer template fields. Catalog endpoints return names only.
 Ensure your template uses the service's named CSV contract. See
 [templates/README.md](templates/README.md).
 
-Copies use each renderer's native semantics **per batch**. GTK and Qt can order
-copies differently. Each batch starts a new page; merging concatenates pages and
-does not fill an earlier batch's unused label positions. Supply continuous serial
-numbers in the data rather than relying on template variables across CLI runs.
+The service owns copies and their order. `copy_order="sets"` (default) repeats
+the complete input: `ABCD`, copies=2 → `ABCDABCD`. `"per_record"` repeats each
+record: `AABBCCDD`. The renderer always receives copies=1. CSV rows are generated
+from a virtual sequence per admitted render batch; copies are not materialized
+as a second expanded list in memory. Sets continue into available page slots;
+each set does not automatically start a new page.
+
+When the effective label count exceeds `MAX_LABELS_PER_BATCH`, the request must
+declare `labels_per_page` for its template. Intermediate batches contain whole
+pages, rounded down within that limit; the final batch may be partial. Missing
+declarations, a page larger than the batch limit, and excessive batch/page counts
+return HTTP 422 before creating a job. A single render does not require this
+declaration. A declared page count is checked against each batch PDF by the
+isolated merge worker; a mismatch fails the job without publishing a final.
+
+The template provider must verify the declared page capacity, the first-slot
+start, and continuous filling without native grouping. The service cannot infer
+these from an opaque template or prove slot geometry from PDF page counts alone.
+Supply business serial numbers and any copy/page-specific values as data. Native
+template copy variables now see copies=1, and native page/sequence variables reset
+per invocation. Templates relying on those variables need adaptation and layout
+acceptance with the chosen renderer; arbitrary templates are not automatically
+equivalent to one monolithic render.
 
 ## API
 
@@ -80,6 +116,39 @@ Successful admission returns HTTP 202:
 ```json
 {"job_id":"123e4567-e89b-42d3-a456-426614174000","status":"pending"}
 ```
+
+### Using copies and copy_order
+
+`copies` determines how many labels each record produces; `copy_order` determines
+their sequence. Both are JSON fields on each `POST /labels/print`, with no extra
+Qt flags or environment variables required.
+
+For example, assume your deployed `demo.glabels` uses the `ITEM` field and has
+four label positions per page:
+
+```json
+{
+  "template_name": "demo.glabels",
+  "data": [{"ITEM": "A"}, {"ITEM": "B"}, {"ITEM": "C"}],
+  "copies": 2,
+  "copy_order": "sets",
+  "labels_per_page": 4
+}
+```
+
+| copy_order | Meaning | Label sequence | Pages in this example |
+|---|---|---|---|
+| `sets` (default) | Repeat the complete input in order | `ABCABC` | `ABCA` then `BC` |
+| `per_record` | Repeat each record consecutively | `AABBCC` | `AABB` then `CC` |
+
+Change only `copy_order` to `"per_record"` to select the second ordering. Omitting
+it selects `sets`; omitting `copies` selects one copy, where both orders are the
+same. Sets do not force a page break between copies. Both examples produce six
+labels in one two-page PDF, not two PDF files.
+
+Use your actual template's capacity for `labels_per_page`, not the example's
+four. This declaration aligns service batches; it does not change the template's
+layout. It is required when the job needs batching.
 
 | Endpoint | Purpose |
 |---|---|
@@ -104,9 +173,16 @@ Missing/null values become empty cells, booleans `true`/`false`; quoting and
 newlines use standard UTF-8 CSV. Nested values, NUL and nonfinite numbers are
 rejected. The template provider owns field mapping and layout correctness.
 
+Request options: `copies` defaults to 1; `copy_order` is `sets` or `per_record`;
+`labels_per_page` is a positive integer or null. Status/SSE retain these options
+after restart. Jobs saved before normalization report `copy_order="renderer_native"`
+and no page declaration; their existing PDFs are retained without re-rendering.
+
 ## Results and restart
 
 SQLite stores minimal metadata; final PDFs remain in `output/<job_id>.pdf`.
+Schema v1 upgrades transactionally to v2, preserving existing IDs and expiry.
+Older binaries that only support v1 cannot open the upgraded database.
 The main process publishes a validated file by rename, then marks the job done.
 Only final PDFs are downloadable. CSVs, batch PDFs and staging files are cleaned
 after their actual operations end.

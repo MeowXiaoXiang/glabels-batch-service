@@ -19,8 +19,19 @@ Keep templates/assets unchanged while jobs are running. Drain before updating a
 template bundle; completed PDFs are retained independently, but active jobs do not
 snapshot or version the deployment's template and asset directory.
 
-Each render batch starts a new page. Copies and template variables use native
-renderer behavior per invocation. Supply continuous identifiers in the data.
+The service expands `copies` in its own virtual input sequence and always invokes
+the renderer with copies=1. `copy_order="sets"` repeats the whole input;
+`"per_record"` repeats each record. Native copy variables therefore do not track
+the public request's copies. Supply continuous identifiers and any business
+copy/page-specific values in the data; native variables reset per invocation.
+
+Jobs that need batching must supply the trusted `labels_per_page` of the chosen
+template. Batches are aligned to whole pages within the work limit; only the
+final page may have unused slots. Templates/wrappers must start at the first slot
+and fill continuously without native per-group page breaks. Page-count mismatch
+fails the job before publication, but matching page counts do not certify slot
+geometry or field semantics. The service never reads layout metadata from the
+template. Verify this declaration and the output with your real template.
 Keep fonts/assets available in the deployed runtime and verify printed layout
 and barcode readability with your actual template/printer.
 

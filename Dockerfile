@@ -1,4 +1,4 @@
-# Default runtime: GTK. Qt is a separate, opt-in renderer test/deployment image.
+# Default production runtime: GTK. Qt is available in the opt-in qt-test stage.
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \

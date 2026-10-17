@@ -21,6 +21,8 @@ CREATE TABLE jobs (
     template_name TEXT NOT NULL,
     record_count INTEGER NOT NULL CHECK(record_count > 0),
     copies INTEGER NOT NULL CHECK(copies > 0),
+    copy_order TEXT NOT NULL CHECK(copy_order IN ('sets','per_record','renderer_native')),
+    labels_per_page INTEGER CHECK(labels_per_page IS NULL OR labels_per_page > 0),
     batch_count INTEGER NOT NULL CHECK(batch_count > 0),
     created_at INTEGER NOT NULL,
     started_at INTEGER,
@@ -38,7 +40,15 @@ CREATE TABLE jobs (
 );
 CREATE INDEX jobs_created ON jobs(created_at DESC);
 CREATE INDEX jobs_expiry ON jobs(expires_at) WHERE expires_at IS NOT NULL;
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
+"""
+
+MIGRATE_V2 = """
+ALTER TABLE jobs ADD COLUMN copy_order TEXT NOT NULL DEFAULT 'renderer_native'
+    CHECK(copy_order IN ('sets','per_record','renderer_native'));
+ALTER TABLE jobs ADD COLUMN labels_per_page INTEGER
+    CHECK(labels_per_page IS NULL OR labels_per_page > 0);
+PRAGMA user_version = 2;
 """
 
 
@@ -105,7 +115,7 @@ class JobStore:
                 self._connection = sqlite3.connect(self.path, timeout=5)
                 self.db.row_factory = sqlite3.Row
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1):
+                if version not in (0, 1, 2):
                     raise RuntimeError(f"Unsupported job schema version: {version}")
                 if version == 0:
                     if self.db.execute(
@@ -113,6 +123,10 @@ class JobStore:
                     ).fetchone():
                         raise RuntimeError("Unrecognized existing database")
                     self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nCOMMIT;")
+                elif version == 1:
+                    self.db.executescript(
+                        "BEGIN IMMEDIATE;\n" + MIGRATE_V2 + "\nCOMMIT;"
+                    )
                 self.db.execute("PRAGMA journal_mode=WAL")
                 self.db.execute("PRAGMA synchronous=FULL")
             except BaseException:
@@ -126,7 +140,15 @@ class JobStore:
         await self._io(initialize)
 
     async def create(
-        self, job_id: str, template: str, records: int, copies: int, batches: int
+        self,
+        job_id: str,
+        template: str,
+        records: int,
+        copies: int,
+        batches: int,
+        *,
+        copy_order: str = "sets",
+        labels_per_page: int | None = None,
     ) -> None:
         if str(UUID(job_id)) != job_id:
             raise ValueError("Noncanonical job UUID")
@@ -134,9 +156,18 @@ class JobStore:
         def insert() -> None:
             with self.db:
                 self.db.execute(
-                    "INSERT INTO jobs(job_id,status,template_name,record_count,copies,batch_count,created_at) "
-                    "VALUES (?,'pending',?,?,?,?,?)",
-                    (job_id, template, records, copies, batches, now_ms()),
+                    "INSERT INTO jobs(job_id,status,template_name,record_count,copies,batch_count,created_at,copy_order,labels_per_page) "
+                    "VALUES (?,'pending',?,?,?,?,?,?,?)",
+                    (
+                        job_id,
+                        template,
+                        records,
+                        copies,
+                        batches,
+                        now_ms(),
+                        copy_order,
+                        labels_per_page,
+                    ),
                 )
 
         await self._io(insert)

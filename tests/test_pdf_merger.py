@@ -45,6 +45,12 @@ async def test_order_validation_and_single_input_copy(tmp_path):
             await merger.merge([bad], None)
         assert await merger.merge(paths[:1], None) == 1
         assert merger.restarts == 0
+        with pytest.raises(PdfOperationError, match="labels_per_page declaration"):
+            await merger.merge(
+                paths[:1], tmp_path / "wrong-pages.pdf", expected_pages=[2]
+            )
+        assert not (tmp_path / "wrong-pages.pdf").exists()
+        assert await merger.merge(paths[:1], None, expected_pages=[1]) == 1
     finally:
         await merger.close()
 

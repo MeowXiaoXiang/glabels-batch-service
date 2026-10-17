@@ -139,7 +139,13 @@ class JobManager:
             identifier = str(uuid4())
             try:
                 await self.store.create(
-                    identifier, req.template_name, len(req.data), req.copies, count
+                    identifier,
+                    req.template_name,
+                    len(req.data),
+                    req.copies,
+                    count,
+                    copy_order=req.copy_order,
+                    labels_per_page=req.labels_per_page,
                 )
             except Exception:
                 self.healthy = False
@@ -244,6 +250,8 @@ class JobManager:
             template_name=row["template_name"],
             record_count=row["record_count"],
             copies=row["copies"],
+            copy_order=row["copy_order"],
+            labels_per_page=row["labels_per_page"],
             progress=progress,
             created_at=datetime.fromtimestamp(row["created_at"] / 1000, UTC),
             started_at=timestamp("started_at"),

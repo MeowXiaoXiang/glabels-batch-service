@@ -4,6 +4,8 @@
 
 [English／完整設定說明](README.md)
 
+參與開發與 commit 格式規範：[CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 啟動
 
 需要 Python 3.14 以上與可運作的 gLabels batch executable。預設 Docker image 已包含 GTK、中文字型與 Python 依賴：
@@ -19,13 +21,29 @@ Compose 會持久掛載 state、output、templates 與 logs。state 保存 SQLit
 
 ## GTK／Qt 切換
 
-設定 `GLABELS_EXECUTABLE` 為執行檔名稱或路徑，重啟即可套用。預設 `glabels-3-batch`，Qt 可用 `glabels-batch-qt` 或相容 wrapper。服務用獨立 argv 傳遞 `-o`、`-i`、`--copies` 與 template，不執行 shell command 字串。
+**一個服務實例只使用一種 renderer**，在部署時統一選定。API 不提供逐請求選 GTK／Qt，同一個 job 也不混用兩套。
+
+目前 Docker targets：
+
+| 建置 target | 包含的 renderer | 預設執行 |
+|---|---|---|
+| `production`（預設，Compose 亦使用此版本） | GTK | API 服務 |
+| `test` | GTK | pytest |
+| `qt-test` | GTK 與 Qt | pytest |
+
+`qt-test` 同時裝兩套是為了相容性測試。Qt 專用的正式 target 尚未提供；預設 GTK image 不會因改了環境變數就安裝 Qt，切換前須先部署對應 runtime。
+
+設定 `GLABELS_EXECUTABLE` 為執行檔名稱或路徑，重啟即可套用。預設 `glabels-3-batch`，Qt 可用 `glabels-batch-qt` 或相容 wrapper。服務用獨立 argv 傳遞 `-o`、`-i`、`--copies=1` 與 template，不執行 shell command 字串。
 
 請先準備對應的 renderer、runtime、字型與平台環境。更換路徑不會安裝 Qt；無顯示器的 Qt 部署可提供適用的 `QT_QPA_PLATFORM=offscreen` 或 wrapper。wrapper 要正確傳參數、退出碼與信號並管理子程序。預設 production image 保留 GTK，`qt-test` target 另行建置固定 Qt 上游版本供驗證。
 
 模板內容完全由 renderer 理解，服務不解析／轉換 XML、不推測欄位、不提供 sidecar metadata。模板提供者負責選用相容格式及正確的 CSV 欄位設定。
 
-`copies` 採各 renderer **每個 batch 的原生語意**；GTK／Qt 順序可能不同。每批會從新頁開始，PDF merge 只串接完整頁，不回填前批尾頁的空標籤。跨批連續編號應由輸入欄位提供。
+份數與排列由服務統一處理：`copy_order="sets"`（預設）重複完整資料，`ABCD` 印兩份為 `ABCDABCD`；`"per_record"` 則為 `AABBCCDD`。renderer 固定收到 copies=1。每個取得資源的 batch 才從虛擬序列逐筆寫 CSV，不會為 copies 在 RAM 裡建立整份展開清單。逐套資料會接續使用可用標籤位置，不強制每套從新頁開始。
+
+有效標籤數超過 `MAX_LABELS_PER_BATCH`、需要拆批時，請求必須提供該模板的 `labels_per_page`。中間批次會在上限內向下對齊完整頁，最後一批才可有空格。缺少宣告、一頁超過批次上限、批數或宣告頁數超限，會在建立 job 前回 422；單次 render 可省略宣告。隔離的 merge worker 會檢查每批 PDF 的實際頁數，不符就失敗、不發布 final。
+
+模板提供者須確認每頁容量、從第一格開始、連續填格且不使用原生分組。服務不解析模板，也無法只靠 PDF 頁數證明每一格的位置。業務流水號或需要跨批一致的 copy／page 值應放進輸入欄位；原生 copy 變數現在只看到 copies=1，原生頁碼／流水變數仍會每批重設。依賴這些功能的模板需要調整並驗收，不能宣稱任意模板皆等同一次完整 render。
 
 ## 提交與下載
 
@@ -41,7 +59,37 @@ Compose 會持久掛載 state、output、templates 與 logs。state 保存 SQLit
 
 接受後回202與 job_id。透過 `/labels/jobs/{job_id}` 查狀態，或 `/labels/jobs/{job_id}/stream` 訂閱 SSE；done 後使用 response 的 download_url。斷線不取消工作。
 
+### copies 與 copy_order 怎麼用
+
+`copies` 決定每筆資料產生幾張標籤；`copy_order` 決定這些標籤的排列。
+它是每次 `POST /labels/print` 的 JSON 欄位，不是環境變數，也不需要另加 Qt 參數。
+
+例如，假設你已部署的 `demo.glabels` 使用 `ITEM` 欄位，而且每頁有4個標籤位置：
+
+```json
+{
+  "template_name": "demo.glabels",
+  "data": [{"ITEM": "A"}, {"ITEM": "B"}, {"ITEM": "C"}],
+  "copies": 2,
+  "copy_order": "sets",
+  "labels_per_page": 4
+}
+```
+
+| copy_order | 意義 | 標籤順序 | 此範例的分頁（`｜` 表示換頁） |
+|---|---|---|---|
+| `sets`（預設） | 整份資料依序重複 | `ABCABC` | `ABCA｜BC` |
+| `per_record` | 每筆資料連續重複 | `AABBCC` | `AABB｜CC` |
+
+要改成逐筆重複，只需把同一請求的 `copy_order` 改成 `"per_record"`。
+省略 `copy_order` 就用 `sets`；省略 `copies` 就印一份，此時兩種排列結果相同。
+`sets` 不會強制每套從新頁開始，也不會產生兩個 PDF；這個範例兩種模式都產生6張標籤、同一份兩頁 PDF。
+
+`labels_per_page` 請填實際模板容量，不能直接照抄範例的4。它用來對齊服務批界，沒有控制或修改模板的格數；需要拆批時必填。
+
 狀態：`pending → rendering → merging → done`，失敗為 failed。單 batch 可略過 merging，但一樣由隔離 worker 驗證 PDF。進度表示完成 render 的批數，還不代表 final 已能下載。batch 只有內部 index，不另外提供母／子 job ID。
+
+請求欄位：`copies` 預設 1、`copy_order` 為 `sets`／`per_record`、`labels_per_page` 為正整數或 null。狀態與 SSE 會保存排列／分頁宣告供重啟後查詢。正規化前的舊任務標為 `copy_order="renderer_native"`，保留原 PDF，不重新列印。SQLite schema v1 會以 transaction 升級至 v2，原 ID 與 expiry 不變；只支援 v1 的舊版程式無法開啟升級後的資料庫。
 
 資料只接受 scalar；CSV 依全 job 欄位首次出現順序產生一致 header，UTF-8 編碼、標準 quoting，null／缺值為空字串，boolean 為 true／false。巢狀物件、NUL、非有限數字會被拒絕。
 
