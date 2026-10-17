@@ -7,7 +7,15 @@ from app.utils.glabels_engine import GlabelsEngine, GlabelsRunError, GlabelsTime
 
 
 @pytest.mark.asyncio
-async def test_native_process_argv_and_bounded_diagnostics(tmp_path, monkeypatch):
+@pytest.mark.parametrize("parent_segment", [False, True])
+async def test_native_process_argv_and_bounded_diagnostics(
+    tmp_path, monkeypatch, parent_segment
+):
+    if parent_segment:
+        # Exercise path normalization even when Windows short names are absent.
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        tmp_path = nested / ".."
     template, data, output = [
         tmp_path / n for n in ("with spaces.glabels", "data.csv", "out.pdf")
     ]
@@ -41,7 +49,7 @@ async def test_native_process_argv_and_bounded_diagnostics(tmp_path, monkeypatch
         "--copies=2",
         str(template.resolve()),
     )
-    assert observed[0][1]["cwd"] == template.parent
+    assert observed[0][1]["cwd"] == template.resolve().parent
 
 
 @pytest.mark.asyncio
