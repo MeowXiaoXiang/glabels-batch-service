@@ -57,3 +57,7 @@ parent-only coverage is not a claim that native code was untested.
 Quality regression tests also verify app-specific deployment limits and rate counters,
 log severity floors and sink failures, OpenAPI media/error contracts, and execution
 failures that must retain resource accounting.
+
+TestClient uses the locked `httpx2` development dependency. Keep that backend
+consistent across Windows and renderer-container tests; plain `httpx` is not
+needed by this project.
