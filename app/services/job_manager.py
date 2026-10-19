@@ -130,8 +130,8 @@ class JobManager:
         async with self._admission:
             if not self.ready or len(self.pending) >= self.cfg.MAX_PENDING_JOBS:
                 raise CapacityError("Service busy or not ready")
-            await io(self.catalog.get_template_path, req.template_name)
             _, count = batch_shape(req, self.cfg)
+            await io(self.catalog.get_template_path, req.template_name)
             for root in (self.cfg.TEMP_DIR, self.cfg.OUTPUT_DIR):
                 if (
                     await io(shutil.disk_usage, root)
@@ -307,6 +307,8 @@ class JobManager:
 
     async def cleanup(self) -> None:
         async with self._artifacts:
+            # Advance past busy or undeletable artifacts so they cannot monopolize
+            # each cleanup batch; wrap around later to retry them.
             rows = await self.store.rows(
                 "SELECT job_id,expires_at FROM jobs WHERE expires_at<=? AND (expires_at,job_id)>(?,?) "
                 "ORDER BY expires_at,job_id LIMIT ?",

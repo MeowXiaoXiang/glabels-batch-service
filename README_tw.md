@@ -129,3 +129,9 @@ SIGTERM 先停止接單並 drain，超過期限再停止及回收子程序。`/h
 使用 [tests/README.md](tests/README.md) 的品質檢查與 GTK／Qt container tests。正式 image 不放 research、tests、Qt 編譯工具或 qpdf CLI；服務程式不解析模板內容。
 
 v3 直接更新 API 與設定：移除 running、模板解析欄位、MAX_PARALLEL、KEEP_CSV，請對照新的 `.env.example`。不維護舊版相容層。
+
+## 日誌與 API 文件
+
+`LOG_LEVEL` 是全部輸出的最低門檻。Console 直接使用此等級；`system.log` 取它與 INFO 較嚴格者，`error.log` 取它與 ERROR 較嚴格者。因此 DEBUG 只進 console；設為 ERROR 後，所有輸出都排除 INFO。`LOG_FORMAT=text`／`json` 同時套用至 console 與檔案；目錄或檔案建立失敗時，console 仍維持指定等級與格式。每個檔案 sink 在 5 MB 輪替，保留 10 份輪替檔案。
+
+`/docs` 提供請求範例、欄位語意、PDF／SSE 格式及錯誤回應。部署限制使用目前 app 的設定，在接受任務前檢查；型別與基本資料有效性由模型另外驗證。提交限流依用戶端位址及服務 instance 分別計數，不跨部署共用。

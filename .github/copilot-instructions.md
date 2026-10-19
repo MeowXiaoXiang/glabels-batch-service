@@ -21,6 +21,12 @@ a push.
 
 ## Architecture
 
+- Each app owns its router and in-memory rate limiter. Request models validate
+  fixed data contracts; admission/batch planning uses that app's deployment
+  limits. Do not bind configurable request limits to module-global settings.
+- `LOG_LEVEL` is a floor for every sink, including failure fallback; system and
+  error files additionally retain INFO and ERROR floors. Logger setup receives
+  its configuration explicitly.
 - `JobManager` owns admission and lifecycle; `job_pipeline.py` dispatches render
   and merge work through the shared weighted CPU budget.
 - `job_store.py` persists minimal job metadata in SQLite. One instance and one

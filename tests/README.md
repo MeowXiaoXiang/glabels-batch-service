@@ -53,3 +53,7 @@ Short tests/accelerated retention cycles do not establish a production capacity
 SLA or substitute for longer workload and printer acceptance testing. Coverage
 of spawn-child PDF operations is supplemented by direct worker behavior tests;
 parent-only coverage is not a claim that native code was untested.
+
+Quality regression tests also verify app-specific deployment limits and rate counters,
+log severity floors and sink failures, OpenAPI media/error contracts, and execution
+failures that must retain resource accounting.

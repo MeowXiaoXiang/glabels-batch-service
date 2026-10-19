@@ -22,10 +22,10 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app import SERVICE_NAME, VERSION
-from app.api.jobs import router
+from app.api.jobs import create_router
 from app.config import Settings, settings
 from app.core.body_limit import BodyLimitMiddleware
-from app.core.limiter import limiter
+from app.core.limiter import create_limiter
 from app.core.logger import setup_logger
 from app.services.job_manager import JobManager
 
@@ -55,6 +55,7 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
         description="Opaque-template GTK/Qt batch rendering with persistent short-term downloads",
     )
     application.state.settings = cfg
+    limiter = create_limiter()
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
     application.add_middleware(
@@ -147,15 +148,22 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
 
     @application.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
+        """Check process liveness; this does not imply readiness to accept jobs."""
         return {"status": "ok"}
 
-    @application.get("/ready", tags=["system"])
+    @application.get(
+        "/ready",
+        tags=["system"],
+        responses={503: {"description": "Service cannot safely accept work"}},
+    )
     async def ready(request: Request) -> JSONResponse:
+        """Check whether the service can safely accept work."""
         jobs: JobManager = request.app.state.job_manager
         return JSONResponse({"ready": jobs.ready}, 200 if jobs.ready else 503)
 
     @application.get("/", tags=["system"])
     async def root(request: Request) -> dict[str, Any]:
+        """Return service identity, start time and the API documentation link."""
         return {
             "service": SERVICE_NAME,
             "version": VERSION,
@@ -171,7 +179,7 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
                 generate_latest(registry), headers={"Content-Type": CONTENT_TYPE_LATEST}
             )
 
-    application.include_router(router)
+    application.include_router(create_router(limiter, cfg.RATE_LIMIT))
     return application
 
 

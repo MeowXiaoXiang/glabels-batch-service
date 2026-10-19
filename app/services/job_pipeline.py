@@ -25,6 +25,15 @@ def batch_shape(req: LabelRequest, settings: Settings) -> tuple[int, int]:
         or total > settings.MAX_EFFECTIVE_LABELS
     ):
         raise ValueError("Record, copies or effective label limit exceeded")
+    columns = fieldnames(req.data)
+    if len(columns) > settings.MAX_FIELDS_PER_LABEL:
+        raise ValueError("CSV column limit exceeded")
+    if any(
+        isinstance(value, str) and len(value) > settings.MAX_FIELD_LENGTH
+        for row in req.data
+        for value in row.values()
+    ):
+        raise ValueError("Field value length limit exceeded")
     limit = settings.MAX_LABELS_PER_BATCH
     size = total
     if limit and total > limit:
@@ -107,6 +116,7 @@ class JobPipeline:
             rendered_batches=0, total_batches=count
         )
         await self.store.stage(job_id, "rendering")
+        # Tasks claim each index before awaiting; one shared iterator assigns every batch once.
         batches = iter(range(count))
         paths = [workspace / f"batch-{index:06d}.pdf" for index in range(count)]
         started = False
@@ -157,6 +167,8 @@ class JobPipeline:
             await self.merger.merge(paths, assembled, expected_pages=expected_pages)
         await io(self.check_space, workspace)
         await io(shutil.copyfile, assembled, staging)
+        # Persist intent before atomic publication so restart can reconcile a PDF
+        # published just before the final database update.
         await self.store.intent(job_id)
         await io(os.replace, staging, self.cfg.OUTPUT_DIR / f"{job_id}.pdf")
         await self.store.done(job_id)

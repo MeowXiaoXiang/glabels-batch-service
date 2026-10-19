@@ -28,7 +28,6 @@ def test_csv_union_order_quotes_unicode_null_and_boolean(tmp_path):
         {"data": []},
         {"data": [{}]},
         {"copies": 0},
-        {"copies": 101},
         {"copies": "2"},
         {"copy_order": "renderer_native"},
         {"copy_order": "unknown"},
@@ -41,7 +40,6 @@ def test_csv_union_order_quotes_unicode_null_and_boolean(tmp_path):
         {"data": [{"ITEM": {"nested": "object"}}]},
         {"data": [{"ITEM": float("nan")}]},
         {"data": [{"ITEM": "\x00"}]},
-        {"data": [{"ITEM": "x" * 2049}]},
         {"unknown": True},
     ],
 )

@@ -232,6 +232,21 @@ remaining children. Compose allows 60 seconds, including Uvicorn's 5-second HTTP
 grace period and the application's drain/reap budgets. Persistence covers normal
 restart; power-loss durability of the filesystem/volume requires separate testing.
 
+## Logging and API documentation
+
+`LOG_LEVEL` is the minimum severity for all outputs. Console uses that level;
+`system.log` uses the stricter of it and INFO, and `error.log` the stricter of it
+and ERROR. DEBUG therefore appears only on console; ERROR suppresses INFO in
+all outputs. `LOG_FORMAT=text` or `json` applies to console and files. If a log
+directory or file cannot be opened, console logging retains the configured
+level and format. Files rotate at 5 MB and retain 10 rotated files per sink.
+
+Open `/docs` for request examples, field semantics, response formats and error
+codes. Deployment-specific limits are enforced using the active application's
+configuration before accepting a job; schema types and basic data validity are
+checked separately. Submission rate limits are per client address and per
+service instance; they are not shared across deployments.
+
 ## Development
 
 ```sh
