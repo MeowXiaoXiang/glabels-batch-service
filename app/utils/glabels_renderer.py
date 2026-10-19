@@ -9,7 +9,7 @@ import sys
 from asyncio.subprocess import Process
 from pathlib import Path
 
-from app.services.pdf_merger import WorkerUnavailable
+from app.core.errors import ExecutionUnavailable
 from app.utils.tasks import owned, settle
 
 
@@ -21,7 +21,7 @@ class GlabelsTimeoutError(GlabelsRunError):
     pass
 
 
-class GlabelsEngine:
+class GlabelsRenderer:
     def __init__(
         self,
         *,
@@ -39,11 +39,9 @@ class GlabelsEngine:
             raise FileNotFoundError("Configured GLABELS_EXECUTABLE is unavailable")
 
     async def run_batch(
-        self, *, output_pdf: Path, template_path: Path, csv_path: Path, copies: int = 1
+        self, *, output_pdf: Path, template_path: Path, csv_path: Path
     ) -> None:
-        await owned(
-            asyncio.create_task(self._run(output_pdf, template_path, csv_path, copies))
-        )
+        await owned(asyncio.create_task(self._run(output_pdf, template_path, csv_path)))
 
     async def _read(self, stream: asyncio.StreamReader | None) -> str:
         if stream is None:
@@ -84,7 +82,7 @@ class GlabelsEngine:
             await asyncio.wait_for(proc.wait(), self.reap_timeout)
         except TimeoutError as exc:
             self.healthy = False
-            raise WorkerUnavailable("Renderer process exit not confirmed") from exc
+            raise ExecutionUnavailable("Renderer process exit not confirmed") from exc
 
     async def _terminate_and_drain(self, proc: Process) -> None:
         readers = [
@@ -101,11 +99,11 @@ class GlabelsEngine:
                 reader.cancel()
             await asyncio.gather(*readers, return_exceptions=True)
             self.healthy = False
-            raise WorkerUnavailable(
+            raise ExecutionUnavailable(
                 "Renderer exit or pipe cleanup not confirmed"
             ) from exc
 
-    async def _run(self, output: Path, template: Path, data: Path, copies: int) -> None:
+    async def _run(self, output: Path, template: Path, data: Path) -> None:
         output, template, data = output.resolve(), template.resolve(), data.resolve()
         if not template.is_file() or not data.is_file():
             raise FileNotFoundError("Template or CSV is missing")
@@ -115,7 +113,7 @@ class GlabelsEngine:
             str(output),
             "-i",
             str(data),
-            f"--copies={copies}",
+            "--copies=1",  # CSV batches already contain the requested copies.
             str(template),
         ]
         spawn = asyncio.create_task(

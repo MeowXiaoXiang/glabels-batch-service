@@ -11,7 +11,7 @@ import pikepdf
 import pytest
 
 from app.config import Settings
-from app.utils.glabels_engine import GlabelsEngine, GlabelsRunError
+from app.utils.glabels_renderer import GlabelsRenderer, GlabelsRunError
 
 
 def _select_base_dir():
@@ -35,10 +35,7 @@ def _select_base_dir():
 
 
 def pytest_configure(config):
-    """
-    Force pytest/tempfile to use a workspace-local temp directory.
-    This avoids PermissionError when the system temp directory is not writable.
-    """
+    """Use a writable system-temp directory, falling back to the workspace."""
     base = _select_base_dir()
 
     os.environ["TMPDIR"] = str(base)
@@ -50,12 +47,8 @@ def pytest_configure(config):
 
 @pytest.fixture
 def tmp_path():
-    """
-    Provide a writable temp directory under system temp when possible.
-    Overrides pytest's default tmp_path fixture.
-    """
+    """Isolate each test below the selected writable temp directory."""
     base = _select_base_dir() / "pytest_tmp"
-    base.mkdir(parents=True, exist_ok=True)
     base.mkdir(parents=True, exist_ok=True)
     path = base / uuid.uuid4().hex
     path.mkdir(parents=True, exist_ok=True)
@@ -98,8 +91,7 @@ def service_settings(tmp_path):
 
 @pytest.fixture
 def fake_renderer(monkeypatch):
-    async def render(self, *, output_pdf, template_path, csv_path, copies=1):
-        assert copies == 1, "Only the service may expand copies"
+    async def render(self, *, output_pdf, template_path, csv_path):
         if template_path.read_bytes().startswith(b"bad"):
             raise GlabelsRunError("invalid fixture")
         # Finish later batches first; pipeline must still merge by batch index.
@@ -108,10 +100,9 @@ def fake_renderer(monkeypatch):
         with csv_path.open(encoding="utf-8", newline="") as stream:
             rows = list(csv.DictReader(stream))
         with pikepdf.Pdf.new() as pdf:
-            for _ in range(copies):
-                for row in rows:
-                    page = pdf.add_blank_page(page_size=(200, 100))
-                    page.obj.ServiceItem = row.get("ITEM", "")
+            for row in rows:
+                page = pdf.add_blank_page(page_size=(200, 100))
+                page.obj.ServiceItem = row.get("ITEM", "")
             pdf.save(output_pdf)
 
-    monkeypatch.setattr(GlabelsEngine, "run_batch", render)
+    monkeypatch.setattr(GlabelsRenderer, "run_batch", render)

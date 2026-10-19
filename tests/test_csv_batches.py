@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.schema import LabelRequest
+from app.services.csv_batches import batch_rows, fieldnames, write_csv
 from app.services.job_pipeline import batch_shape
-from app.services.label_print import batch_rows, fieldnames, write_csv
 
 
 def test_csv_union_order_quotes_unicode_null_and_boolean(tmp_path):

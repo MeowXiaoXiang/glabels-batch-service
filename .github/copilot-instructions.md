@@ -26,10 +26,10 @@ a push.
 - `job_store.py` persists minimal job metadata in SQLite. One instance and one
   Uvicorn worker own a store. Completed IDs and downloads survive normal restart
   until their original expiry; unfinished work is interrupted, not resumed.
-- `label_print.py` generates named-header CSV batches lazily. Copies and
+- `csv_batches.py` generates named-header CSV batches lazily. Copies and
   `copy_order` are service-owned; every renderer invocation receives copies=1.
   Multi-batch requests must declare `labels_per_page` for page alignment.
-- `glabels_engine.py` invokes the configured executable through argv without a
+- `glabels_renderer.py` invokes the configured executable through argv without a
   shell. One instance selects one GTK/Qt renderer or compatible wrapper.
 - `pdf_merger.py` manages isolated spawn workers; `pdf_worker.py` opens paths,
   checks page counts, merges with pikepdf, and saves. Do not import native PDF

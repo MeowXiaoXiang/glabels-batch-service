@@ -11,15 +11,16 @@ from uuid import UUID, uuid4
 from loguru import logger
 
 from app.config import Settings
+from app.core.errors import ExecutionUnavailable
 from app.schema import JobError, JobProgress, JobStatusResponse, LabelRequest
 from app.services.job_pipeline import JobPipeline, batch_shape
 from app.services.job_store import JobStore, now_ms
-from app.services.pdf_merger import PdfMerger, WorkerUnavailable
+from app.services.pdf_merger import PdfMerger
 from app.services.resource_scheduler import ResourceScheduler
 from app.services.template_service import TemplateService
 from app.utils.cpu_detect import get_cpu_capacity
 from app.utils.files import remove_workspace
-from app.utils.glabels_engine import GlabelsEngine
+from app.utils.glabels_renderer import GlabelsRenderer
 from app.utils.tasks import io, settle
 
 
@@ -40,7 +41,7 @@ class JobManager:
         if cfg.WORK_TOKENS:
             budget = min(budget, cfg.WORK_TOKENS)
         self.scheduler = ResourceScheduler(budget, cfg.MERGE_COST)
-        self.renderer = GlabelsEngine(
+        self.renderer = GlabelsRenderer(
             glabels_bin=cfg.GLABELS_EXECUTABLE,
             default_timeout=cfg.GLABELS_TIMEOUT,
             reap_timeout=cfg.PROCESS_REAP_TIMEOUT,
@@ -219,7 +220,7 @@ class JobManager:
                 try:
                     async with await self.scheduler.acquire("merge", identifier):
                         await self.merger.merge([final], None)
-                except WorkerUnavailable:
+                except ExecutionUnavailable:
                     raise
                 except Exception:
                     logger.warning(

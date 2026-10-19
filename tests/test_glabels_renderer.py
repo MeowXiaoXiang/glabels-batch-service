@@ -3,7 +3,11 @@ import sys
 
 import pytest
 
-from app.utils.glabels_engine import GlabelsEngine, GlabelsRunError, GlabelsTimeoutError
+from app.utils.glabels_renderer import (
+    GlabelsRenderer,
+    GlabelsRunError,
+    GlabelsTimeoutError,
+)
 
 
 @pytest.mark.asyncio
@@ -34,10 +38,10 @@ async def test_native_process_argv_and_bounded_diagnostics(
         )
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    engine = GlabelsEngine(glabels_bin=sys.executable)
+    renderer = GlabelsRenderer(glabels_bin=sys.executable)
     with pytest.raises(GlabelsRunError) as error:
-        await engine.run_batch(
-            template_path=template, csv_path=data, output_pdf=output, copies=2
+        await renderer.run_batch(
+            template_path=template, csv_path=data, output_pdf=output
         )
     assert len(str(error.value)) < 4200
     assert observed[0][0] == (
@@ -46,7 +50,7 @@ async def test_native_process_argv_and_bounded_diagnostics(
         str(output.resolve()),
         "-i",
         str(data.resolve()),
-        "--copies=2",
+        "--copies=1",
         str(template.resolve()),
     )
     assert observed[0][1]["cwd"] == template.resolve().parent
@@ -74,11 +78,11 @@ async def test_timeout_and_cancellation_reap_actual_child(
         return child
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    engine = GlabelsEngine(
+    renderer = GlabelsRenderer(
         glabels_bin=sys.executable, default_timeout=10 if cancel else 0.2
     )
     task = asyncio.create_task(
-        engine.run_batch(
+        renderer.run_batch(
             template_path=template, csv_path=data, output_pdf=tmp_path / "out.pdf"
         )
     )

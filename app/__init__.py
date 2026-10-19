@@ -1,5 +1,4 @@
-# app/__init__.py
-# Application metadata: version and service name.
+"""Application version and public service name."""
 
 SERVICE_NAME: str = "gLabels Batch Service"
 VERSION: str = "3.0.0"

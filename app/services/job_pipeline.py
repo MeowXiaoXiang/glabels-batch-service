@@ -7,13 +7,13 @@ from pathlib import Path
 
 from app.config import Settings
 from app.schema import JobProgress, LabelRequest
+from app.services.csv_batches import batch_rows, fieldnames, write_csv
 from app.services.job_store import JobStore
-from app.services.label_print import batch_rows, fieldnames, write_csv
 from app.services.pdf_merger import PdfMerger
 from app.services.resource_scheduler import ResourceScheduler
 from app.services.template_service import TemplateService
 from app.utils.files import remove_workspace
-from app.utils.glabels_engine import GlabelsEngine
+from app.utils.glabels_renderer import GlabelsRenderer
 from app.utils.tasks import io
 
 
@@ -51,7 +51,7 @@ class JobPipeline:
         cfg: Settings,
         store: JobStore,
         scheduler: ResourceScheduler,
-        renderer: GlabelsEngine,
+        renderer: GlabelsRenderer,
         merger: PdfMerger,
         catalog: TemplateService,
         progress: dict[str, JobProgress],
@@ -129,7 +129,6 @@ class JobPipeline:
                         output_pdf=paths[index],
                         template_path=template,
                         csv_path=csv_path,
-                        copies=1,
                     )
                     await io(self.check_space, workspace)
                     await io(csv_path.unlink)

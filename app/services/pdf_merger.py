@@ -9,12 +9,9 @@ from multiprocessing.connection import wait
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 
+from app.core.errors import ExecutionUnavailable
 from app.utils.pdf_worker import assemble_pdf, worker_identity
 from app.utils.tasks import owned, settle
-
-
-class WorkerUnavailable(RuntimeError):
-    pass
 
 
 class PdfMerger:
@@ -43,7 +40,7 @@ class PdfMerger:
 
     async def _start(self) -> None:
         if not self.healthy:
-            raise WorkerUnavailable("Merge worker could not be safely recovered")
+            raise ExecutionUnavailable("Merge worker could not be safely recovered")
         pool = ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"))
         self._pool = pool
         try:
@@ -81,7 +78,7 @@ class PdfMerger:
             if self._pool is None:
                 await self._start()
             if self._pool is None:
-                raise WorkerUnavailable("Merge worker did not start")
+                raise ExecutionUnavailable("Merge worker did not start")
             try:
                 future = self._pool.submit(
                     assemble_pdf,
@@ -114,7 +111,7 @@ class PdfMerger:
             return
         if child is None:
             self.healthy = False
-            raise WorkerUnavailable("Worker identity unavailable")
+            raise ExecutionUnavailable("Worker identity unavailable")
         if hard:
             await asyncio.to_thread(pool.kill_workers)
         else:
@@ -132,7 +129,7 @@ class PdfMerger:
             await asyncio.to_thread(child.join, self.reap_timeout)
         if child.is_alive() or child.exitcode is None:
             self.healthy = False
-            raise WorkerUnavailable("Merge process exit not confirmed")
+            raise ExecutionUnavailable("Merge process exit not confirmed")
         # Do not child.close(): executor manager can still inspect its handle
         # during BrokenProcessPool cleanup. Let its own references retire.
         self._pool = None

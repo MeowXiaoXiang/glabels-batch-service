@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Literal
 
-from app.services.pdf_merger import WorkerUnavailable
+from app.core.errors import ExecutionUnavailable
 
 Kind = Literal["render", "merge"]
 
@@ -29,7 +29,7 @@ class Lease:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        if isinstance(exc, WorkerUnavailable):
+        if isinstance(exc, ExecutionUnavailable):
             # Retain accounting when the actual operation might still be alive.
             self.scheduler.healthy = False
         else:
@@ -70,7 +70,7 @@ class ResourceScheduler:
 
     async def acquire(self, kind: Kind, job_id: str) -> Lease:
         if not self.healthy:
-            raise WorkerUnavailable("Work scheduler is unavailable")
+            raise ExecutionUnavailable("Work scheduler is unavailable")
         waiter = Waiter(asyncio.get_running_loop().create_future(), time.monotonic())
         queue = (
             self.merges if kind == "merge" else self.renders.setdefault(job_id, deque())
@@ -118,8 +118,8 @@ class ResourceScheduler:
                 and self.budget <= self.merge_cost
                 and free > 0
             ):
-                # At 1/2 tokens a merge occupies the entire budget. Alternate
-                # one render between finishing jobs rather than starving it.
+                # When merge consumes the full budget, let one render advance
+                # between merges so neither stage can starve the other.
                 job_id, queue = self.renders.popitem(last=False)
                 waiter = queue.popleft()
                 if queue:

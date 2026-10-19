@@ -1,7 +1,7 @@
 """FastAPI lifespan owns exactly one local coordinator and persistent store."""
 
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -22,7 +22,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app import SERVICE_NAME, VERSION
-from app.api.print_jobs import router
+from app.api.jobs import router
 from app.config import Settings, settings
 from app.core.body_limit import BodyLimitMiddleware
 from app.core.limiter import limiter
@@ -34,7 +34,7 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
     cfg = cfg or settings
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         setup_logger(cfg.LOG_LEVEL, cfg.LOG_FORMAT, cfg.LOG_DIR)
         jobs = JobManager(cfg)
         application.state.job_manager = jobs
