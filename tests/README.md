@@ -46,13 +46,22 @@ templates. `fixtures/gtk.glabels` and `fixtures/qt.glabels` are renderer-specifi
 test documents, not production templates. Both use the `.glabels` extension but
 have different content. Tests copy the selected fixture to `demo.glabels` in an
 isolated template directory; no demo template is installed by the runtime image.
+A separate [test_data](../test_data/README.md) directory holds older manual GTK
+examples; the automated tests do not use them.
 A Windows host without symlink permission skips the symlink test;
 Linux container tests exercise it.
 
-Short tests/accelerated retention cycles do not establish a production capacity
-SLA or substitute for longer workload and printer acceptance testing. Coverage
-of spawn-child PDF operations is supplemented by direct worker behavior tests;
-parent-only coverage is not a claim that native code was untested.
+Pytest prints statement coverage and missing lines. To save a report, run
+`uv run --locked python -m pytest --cov-report=xml`; `coverage.xml` is generated
+and should not be committed. Branch coverage is not enabled. Worker behavior is
+tested in real spawned processes, whose executed lines may not appear in the
+parent's coverage report. A low percentage in `pdf_worker.py` alone does not
+mean merging went untested.
+
+CI also audits the locked Linux runtime dependencies and checks readiness and
+graceful stop in the production image. See the exact commands in
+[ci.yml](../.github/workflows/ci.yml). These checks do not establish a production
+capacity guarantee or replace acceptance with actual templates and printers.
 
 Quality regression tests also verify app-specific deployment limits and rate counters,
 log severity floors and sink failures, OpenAPI media/error contracts, and execution

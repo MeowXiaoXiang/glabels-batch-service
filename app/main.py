@@ -52,7 +52,7 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
         title=SERVICE_NAME,
         version=VERSION,
         lifespan=lifespan,
-        description="Opaque-template GTK/Qt batch rendering with persistent short-term downloads",
+        description="Generate label PDFs with GTK or Qt gLabels and download completed jobs until they expire.",
     )
     application.state.settings = cfg
     limiter = create_limiter()
@@ -157,7 +157,7 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
         responses={503: {"description": "Service cannot safely accept work"}},
     )
     async def ready(request: Request) -> JSONResponse:
-        """Check whether the service can safely accept work."""
+        """Check that the coordinator is running and healthy. Submissions may still be rejected when queue or disk capacity is exhausted."""
         jobs: JobManager = request.app.state.job_manager
         return JSONResponse({"ready": jobs.ready}, 200 if jobs.ready else 503)
 

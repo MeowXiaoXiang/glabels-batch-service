@@ -28,6 +28,10 @@ uv run --locked --no-dev python -m app.main
 
 已驗證的 runtime 為 Python 3.14。uv 將依賴裝入專案自己的 `.venv`，不修改系統 Python 套件；使用 Docker 時不需要在主機另外裝 uv。
 
+`HOST`、`PORT`、`RELOAD` 用於 `python -m app.main` 啟動方式。Docker 的啟動命令固定使用容器內的 8000 port；要換主機 port，請修改 Compose 的 port mapping。Docker 與 `python -m app.main` 都把 Uvicorn 並行上限設為128。
+
+API 沒有內建身分驗證，請部署在可信任的網路，或由前方 gateway 控制存取。
+
 ## GTK／Qt 切換
 
 **一個服務實例只使用一種 renderer**，在部署時統一選定。API 不提供逐請求選 GTK／Qt，同一個 job 也不混用兩套。
@@ -48,13 +52,15 @@ uv run --locked --no-dev python -m app.main
 
 模板內容完全由 renderer 理解，服務不解析／轉換 XML、不推測欄位、不提供 sidecar metadata。模板提供者負責選用相容格式及正確的 CSV 欄位設定。
 
-份數與排列由服務統一處理：`copy_order="sets"`（預設）重複完整資料，`ABCD` 印兩份為 `ABCDABCD`；`"per_record"` 則為 `AABBCCDD`。renderer 固定收到 copies=1。每個取得資源的 batch 才從虛擬序列逐筆寫 CSV，不會為 copies 在 RAM 裡建立整份展開清單。逐套資料會接續使用可用標籤位置，不強制每套從新頁開始。
+份數與排列由服務統一處理，renderer 固定收到 copies=1；用法見下方的「copies 與 copy_order 怎麼用」。
 
 有效標籤數超過 `MAX_LABELS_PER_BATCH`、需要拆批時，請求必須提供該模板的 `labels_per_page`。中間批次會在上限內向下對齊完整頁，最後一批才可有空格。缺少宣告、一頁超過批次上限、批數或宣告頁數超限，會在建立 job 前回 422；單次 render 可省略宣告。隔離的 merge worker 會檢查每批 PDF 的實際頁數，不符就失敗、不發布 final。
 
 模板提供者須確認每頁容量、從第一格開始、連續填格且不使用原生分組。服務不解析模板，也無法只靠 PDF 頁數證明每一格的位置。業務流水號或需要跨批一致的 copy／page 值應放進輸入欄位；原生 copy 變數現在只看到 copies=1，原生頁碼／流水變數仍會每批重設。依賴這些功能的模板需要調整並驗收，不能宣稱任意模板皆等同一次完整 render。
 
 ## 提交與下載
+
+以下範例假設你已部署名為 `demo.glabels`、使用 `ITEM` 與 `CODE` 欄位的相容模板。正式 image 不會安裝 demo 模板。[test_data](test_data/README.md) 保留了可供手動測試的 GTK 範例；自動化測試使用另一組 GTK／Qt fixture。
 
 向 `POST /labels/print` 提交：
 
@@ -72,6 +78,7 @@ uv run --locked --no-dev python -m app.main
 
 `copies` 決定每筆資料產生幾張標籤；`copy_order` 決定這些標籤的排列。
 它是每次 `POST /labels/print` 的 JSON 欄位，不是環境變數，也不需要另加 Qt 參數。
+服務依指定順序逐筆寫入各批 CSV，不會在記憶體另外建立包含全部 copies 的展開清單。
 
 例如，假設你已部署的 `demo.glabels` 使用 `ITEM` 欄位，而且每頁有4個標籤位置：
 
@@ -98,6 +105,8 @@ uv run --locked --no-dev python -m app.main
 
 狀態：`pending → rendering → merging → done`，失敗為 failed。單 batch 可略過 merging，但一樣由隔離 worker 驗證 PDF。進度表示完成 render 的批數，還不代表 final 已能下載。batch 只有內部 index，不另外提供母／子 job ID。
 
+SSE 的 `status` 事件包含 job JSON；狀態未變時送出 keepalive 註解。工作 done／failed、服務停止接單或用戶端斷線時結束串流。開始前找不到工作會回 HTTP 404；串流開始後才到期，則送出內容為 `{"code":"not_found"}` 的 `error` 事件後結束。
+
 請求欄位：`copies` 預設 1、`copy_order` 為 `sets`／`per_record`、`labels_per_page` 為正整數或 null。狀態與 SSE 會保存排列／分頁宣告供重啟後查詢。SQLite schema v1 已包含排列與分頁欄位；遇到不支援的結構版本會在啟動時拒絕開啟。
 
 資料只接受 scalar；CSV 依全 job 欄位首次出現順序產生一致 header，UTF-8 編碼、標準 quoting，null／缺值為空字串，boolean 為 true／false。巢狀物件、NUL、非有限數字會被拒絕。
@@ -106,19 +115,27 @@ uv run --locked --no-dev python -m app.main
 
 SQLite 只保存必要 metadata，PDF 放在 `output/<job_id>.pdf`。完成結果預設保留24小時，重啟後仍可用原 ID 查詢與下載；重啟、重新下載及修改 retention 都不延長既有 expiry。
 
+正常處理結束後會移除 CSV、batch PDF 與暫存檔。強制停止留下的檔案，若仍存在，會在工作到期時清除，不會用來自動續跑。
+
 已發布 final 但來不及記 done 的工作，啟動時會依 publication intent 驗證並修復。其他未完成工作標記 failed/interrupted，不自動續跑、不保存完整 payload，也不保證重送去重。
 
 到期立即停止新存取並回404，背景清理可稍晚完成。既有下載會受保護，先刪 artifact 再刪 DB row；刪除失敗保留到期紀錄供重試。未過期的 done 若檔案意外缺失回410，尚未完成回409。failed 紀錄也會到期。舊版未入索引的 PDF 不會自動匯入或清除。
 
+### 查看與備份 SQLite
+
+平常查詢請用狀態或工作清單 API。Docker 執行中若需要 SQL，請在服務容器內使用短時間、唯讀的連線，查完就關閉；避免用 Windows 端 SQLite 工具直接開啟 Linux 容器正在使用的掛載資料庫。儲存位置必須支援 SQLite 的鎖定與共享記憶體機制，WAL 不支援網路檔案系統，詳見 [SQLite WAL 說明](https://sqlite.org/wal.html)。
+
+要一起備份 metadata 與 PDF，請先停止服務、確認程序已退出，再同時複製 `state/` 與 `output/`（若自訂路徑，請複製對應目錄），完成後再啟動。`state/` 要整個複製，包含可能殘留的 WAL 檔案，不要只拿 `jobs.sqlite3`。SQLite 的 [backup API](https://sqlite.org/backup.html) 可在執行中取得一致的資料庫副本，但不會一起快照 PDF 目錄。
+
 ## 容量與關閉
 
-CPU budget 依 quota、affinity 與 process CPU count 決定，預設保留1份餘裕。render=1、merge=2 作為靜態 admission weight，低 CPU 會 clamp；工作動態派發，沒有即時 CPU feedback。`WORK_TOKENS` 可進一步降低總容量。
+CPU budget 在啟動時計算：取偵測到的最小 CPU 容量向下取整，減去 `API_CPU_RESERVE`（預設1），至少保留1個 work token，因此0.5 CPU 也能執行。render 成本為1、merge 預設為2；merge 成本最多等於總 budget。工作動態派發，沒有即時 CPU feedback；`WORK_TOKENS=0` 自動計算，正值可進一步降低總容量。
 
 render／merge 共用 budget，等待 merge 時保留收尾容量；render 依 job 輪替，低容量下也讓新 render 在連續 merges 間前進。一個常駐 spawn worker 處理 merge／validation，只有確認真正退出後才能釋放 lease 或清理使用中的檔案。
 
 queue、inflight、request、records×copies、batch、PDF pages／bytes、workspace 與磁碟餘裕都有上限。workspace／磁碟會在操作前後及 render 期間定期檢查；硬性 OS 資源隔離仍由容器／supervisor 提供。請用會管理整棵程序樹的 supervisor；提供的 Docker 部署是此運行模式。
 
-SIGTERM 先停止接單並 drain，超過期限再停止及回收子程序。`/health` 是存活檢查，`/ready` 是可接工作檢查；容量滿回503、過大 body 回413。一般 process／container restart 已納入保存契約，突然斷電的 volume 耐久度需另外驗證。
+SIGTERM 先停止接單並等待已接受的工作完成，超過期限再停止及回收子程序。`/health` 是存活檢查，`/ready` 檢查協調器是否運行且健康，不檢查佇列或磁碟餘裕；即使 ready，提交仍可能因容量不足回503。過大 body 回413。一般 process／container restart 已納入保存契約，突然斷電的 volume 耐久度需另外驗證。
 
 ## 驗證與升級
 
@@ -132,6 +149,6 @@ v3 直接更新 API 與設定：移除 running、模板解析欄位、MAX_PARALL
 
 ## 日誌與 API 文件
 
-`LOG_LEVEL` 是全部輸出的最低門檻。Console 直接使用此等級；`system.log` 取它與 INFO 較嚴格者，`error.log` 取它與 ERROR 較嚴格者。因此 DEBUG 只進 console；設為 ERROR 後，所有輸出都排除 INFO。`LOG_FORMAT=text`／`json` 同時套用至 console 與檔案；目錄或檔案建立失敗時，console 仍維持指定等級與格式。每個檔案 sink 在 5 MB 輪替，保留 10 份輪替檔案。
+`LOG_LEVEL` 是應用程式日誌的最低門檻。Console 直接使用此等級；`system.log` 取它與 INFO 較嚴格者，`error.log` 取它與 ERROR 較嚴格者。因此 DEBUG 只進 console；設為 ERROR 後，應用程式的所有日誌輸出都排除 INFO。`LOG_FORMAT=text`／`json` 同時套用至 console 與檔案；目錄或檔案建立失敗時，console 仍維持指定等級與格式。每個檔案 sink 在 5 MB 輪替，保留 10 份輪替檔案。Uvicorn 自己的伺服器日誌使用另一套 logging 設定。
 
 `/docs` 提供請求範例、欄位語意、PDF／SSE 格式及錯誤回應。部署限制使用目前 app 的設定，在接受任務前檢查；型別與基本資料有效性由模型另外驗證。提交限流依用戶端位址及服務 instance 分別計數，不跨部署共用。

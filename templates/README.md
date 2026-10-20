@@ -12,8 +12,9 @@ does not infer header modes, validate template field semantics or convert files.
 
 The renderer runs with the template directory as its working directory, with
 absolute CSV/output paths. Relative assets can be deployed alongside templates.
-Only `.glabels` basenames are catalogued; symlinks escaping this directory and
-API path traversal are rejected.
+Only `.glabels` basenames are catalogued; template symlinks escaping this
+directory and API path traversal are rejected. Asset paths inside templates are
+interpreted by the renderer, not checked by this catalog.
 
 Keep templates/assets unchanged while jobs are running. Drain before updating a
 template bundle; completed PDFs are retained independently, but active jobs do not
@@ -35,5 +36,8 @@ template. Verify this declaration and the output with your real template.
 Keep fonts/assets available in the deployed runtime and verify printed layout
 and barcode readability with your actual template/printer.
 
-The authored GTK/Qt fixtures in `tests/fixtures` demonstrate the service CSV
-contract; they do not imply arbitrary GTK and Qt templates are interchangeable.
+The GTK/Qt fixtures in `tests/fixtures` demonstrate the service CSV contract;
+GTK and Qt templates are not interchangeable just because they share a file
+extension. [test_data](../test_data/README.md) contains separate manual GTK
+examples, including a historical headerless example that does not match the
+current API's CSV contract.

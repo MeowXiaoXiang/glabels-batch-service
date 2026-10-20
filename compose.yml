@@ -1,4 +1,4 @@
-# Docker Compose - Single deployment profile (internal-first)
+# Default GTK deployment; one service instance owns the SQLite store.
 
 services:
   glabels-batch-service:

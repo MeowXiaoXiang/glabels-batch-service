@@ -1,5 +1,7 @@
 # Contributing
 
+Repository guidance for coding agents lives in [AGENTS.md](AGENTS.md).
+
 ## Dependencies and local environment
 
 Use Python 3.14 and uv 0.12.10, the version required by `pyproject.toml` and used
@@ -45,7 +47,7 @@ periodic dependency review is still needed for security updates.
 
 ## Commit messages
 
-Use English subjects and bodies, following the prevailing project history.
+Use English subjects and bodies for new commits.
 
 ```text
 type(scope): short description

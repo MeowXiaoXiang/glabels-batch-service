@@ -105,7 +105,7 @@ dmypy.json
 !.env.*.example
 
 # =======================================================
-# Application-specific (labels-service)
+# Service data
 # =======================================================
 # Generated PDFs and temp files
 output/
@@ -115,9 +115,6 @@ state/
 # Ignore everything in templates/ except the README (keep README tracked)
 templates/*
 !templates/README.md
-
-# Keep test_data as requested - it's for testing
-# test_data/
 
 # Log files
 *.log

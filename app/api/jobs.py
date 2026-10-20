@@ -82,7 +82,12 @@ def create_router(limiter: Limiter, rate_limit: str) -> APIRouter:
         },
     )
     async def stream_job_status(job_id: UUID, request: Request) -> StreamingResponse:
-        """Stream status events with job JSON and keepalive comments when unchanged. The stream ends on done, failed, service shutdown or disconnect; expiry after streaming starts emits an error event with code not_found, whereas an initially missing job returns HTTP 404."""
+        """Stream status events containing job JSON, with keepalive comments when unchanged.
+
+        The stream closes on done, failed, service shutdown or disconnect.
+        A missing job returns HTTP 404 before streaming; expiry during streaming
+        sends an error event with code not_found and closes the stream.
+        """
         jobs = manager(request)
         await get_job_status(job_id, request)
 

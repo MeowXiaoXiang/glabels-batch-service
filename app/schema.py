@@ -49,7 +49,7 @@ class LabelRequest(BaseModel):
     copies: int = Field(
         1,
         ge=1,
-        description="Copies of each record, expanded by the service before rendering.",
+        description="Labels per record; the service generates the requested order in each batch CSV and invokes the renderer with copies=1.",
     )
     copy_order: CopyOrder = Field(
         "sets",

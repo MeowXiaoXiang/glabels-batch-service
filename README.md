@@ -38,14 +38,21 @@ does not require uv on the host. Python 3.14 is the tested runtime; uv uses a
 project-local `.venv` without changing your system Python packages.
 
 Interactive documentation: `/docs`. `/health` is liveness; `/ready` indicates
-whether the coordinator can accept work. Oversized bodies return 413; invalid
-inputs return 422; a full queue or unavailable coordinator returns 503 with
+whether the coordinator is running and healthy. Readiness does not check queue
+space or disk headroom; individual submissions can still be rejected.
+Oversized bodies return 413; invalid inputs return 422; a full queue or
+unavailable coordinator returns 503 with
 `Retry-After`. The request limit applies before JSON parsing, including chunked
 bodies.
 
 Body admission concurrency is bounded before JSON parsing by the pending plus
-inflight capacity. The provided Uvicorn entrypoints also cap concurrent
-connections at 128.
+inflight capacity. The Docker command and `python -m app.main` also set Uvicorn's
+concurrency limit to 128. In Docker, the command binds to port 8000; `HOST`,
+`PORT` and `RELOAD` configure only the `python -m app.main` launcher. Change
+Compose's port mapping to use a different host port.
+
+The API has no built-in authentication. Deploy it on a trusted network or behind
+a gateway that controls access.
 
 ## GTK / Qt
 
@@ -85,12 +92,8 @@ parse, convert, or infer template fields. Catalog endpoints return names only.
 Ensure your template uses the service's named CSV contract. See
 [templates/README.md](templates/README.md).
 
-The service owns copies and their order. `copy_order="sets"` (default) repeats
-the complete input: `ABCD`, copies=2 → `ABCDABCD`. `"per_record"` repeats each
-record: `AABBCCDD`. The renderer always receives copies=1. CSV rows are generated
-from a virtual sequence per admitted render batch; copies are not materialized
-as a second expanded list in memory. Sets continue into available page slots;
-each set does not automatically start a new page.
+The service handles copies and their order; the renderer always receives
+copies=1. See [Using copies and copy_order](#using-copies-and-copy_order) below.
 
 When the effective label count exceeds `MAX_LABELS_PER_BATCH`, the request must
 declare `labels_per_page` for its template. Intermediate batches contain whole
@@ -111,6 +114,11 @@ equivalent to one monolithic render.
 
 ## API
 
+The examples assume you have deployed a compatible template named
+`demo.glabels` with `ITEM` and `CODE` fields. The runtime does not install a demo
+template. The GTK examples in [test_data](test_data/README.md) are available for
+manual testing; automated tests use separate renderer-specific fixtures.
+
 ```sh
 curl -X POST http://localhost:8000/labels/print \
   -H 'Content-Type: application/json' \
@@ -128,6 +136,8 @@ Successful admission returns HTTP 202:
 `copies` determines how many labels each record produces; `copy_order` determines
 their sequence. Both are JSON fields on each `POST /labels/print`, with no extra
 Qt flags or environment variables required.
+The service writes the requested sequence directly into each batch CSV without
+building a second list containing all copies in memory.
 
 For example, assume your deployed `demo.glabels` uses the `ITEM` field and has
 four label positions per page:
@@ -173,6 +183,12 @@ Progress reports rendered batches; completing all render batches does not mean
 the final PDF is ready. Internal batches have indexes, not public child job IDs.
 Disconnecting a polling/SSE client does not cancel an accepted job.
 
+SSE sends `status` events containing the job JSON, or keepalive comments while
+the status is unchanged. It closes when the job reaches `done` or `failed`, the
+service stops accepting work, or the client disconnects. A job missing before
+the stream starts returns HTTP 404; expiry during a stream sends an `error`
+event with `{"code":"not_found"}` and closes the stream.
+
 Records contain scalar values only. CSV columns follow first appearance across
 the whole request, remain consistent across batches, and always include a header.
 Missing/null values become empty cells, booleans `true`/`false`; quoting and
@@ -189,8 +205,9 @@ SQLite stores minimal metadata; final PDFs remain in `output/<job_id>.pdf`.
 Schema v1 includes copy ordering and page declarations. Unsupported schema
 versions are rejected at startup.
 The main process publishes a validated file by rename, then marks the job done.
-Only final PDFs are downloadable. CSVs, batch PDFs and staging files are cleaned
-after their actual operations end.
+Only final PDFs are downloadable. CSVs, batch PDFs and staging files are normally
+removed when processing ends. Files left after a forced stop are removed at job
+expiry if they still exist; they are not inputs for automatic resume.
 
 Completed results remain available under their original job ID after a normal
 service/container restart, until their recorded expiry (24 hours by default).
@@ -205,10 +222,28 @@ deletes the artifact before its index row, and retries failed deletions. Failed
 job records also expire. Only files belonging to indexed jobs are cleaned; legacy
 PDFs from older releases are not automatically imported or deleted.
 
+### Inspecting or backing up SQLite
+
+Use the status/list endpoints for routine inspection. If SQL is needed while
+Docker is running, use a short-lived read-only connection inside the service
+container and close it promptly. Avoid opening the active bind-mounted database
+with a Windows-side SQLite client while the Linux container is using it. Keep
+the store on storage that supports SQLite locking and shared memory; WAL is not
+supported over a network filesystem. See [SQLite's WAL documentation](https://sqlite.org/wal.html).
+
+For a backup of both metadata and PDFs, stop the service, confirm it has exited,
+and copy `state/` and `output/` (or your configured directories) together before
+restarting. Copy the whole state directory, including any remaining WAL files,
+rather than just `jobs.sqlite3`.
+SQLite's [backup API](https://sqlite.org/backup.html) can create a consistent live
+database copy, but it does not snapshot the separate PDF directory.
+
 ## Capacity and lifecycle
 
-Render and merge share a static weighted budget. CPU quota, affinity and process
-CPU count determine the cap; `API_CPU_RESERVE` defaults to 1. `WORK_TOKENS=0` uses
+Render and merge share a weighted budget calculated at startup. The smallest
+detected CPU capacity is rounded down, then `API_CPU_RESERVE` (default 1) is
+subtracted, with a minimum budget of one token. This also lets a service with a
+fractional CPU quota make progress. `WORK_TOKENS=0` uses
 automatic sizing, while a positive value further caps it. Render costs 1; merge
 defaults to 2 and clamps to the available budget. Weights estimate admission
 cost, not CPU affinity or hard OS resource isolation.
@@ -234,12 +269,13 @@ restart; power-loss durability of the filesystem/volume requires separate testin
 
 ## Logging and API documentation
 
-`LOG_LEVEL` is the minimum severity for all outputs. Console uses that level;
+`LOG_LEVEL` is the minimum severity for application logs. Console uses that level;
 `system.log` uses the stricter of it and INFO, and `error.log` the stricter of it
 and ERROR. DEBUG therefore appears only on console; ERROR suppresses INFO in
-all outputs. `LOG_FORMAT=text` or `json` applies to console and files. If a log
-directory or file cannot be opened, console logging retains the configured
-level and format. Files rotate at 5 MB and retain 10 rotated files per sink.
+all application log outputs. `LOG_FORMAT=text` or `json` applies to console and
+files. If a log directory or file cannot be opened, console logging retains the
+configured level and format. Files rotate at 5 MB and retain 10 rotated files per sink.
+Uvicorn's own server logs use its separate logging configuration.
 
 Open `/docs` for request examples, field semantics, response formats and error
 codes. Deployment-specific limits are enforced using the active application's
