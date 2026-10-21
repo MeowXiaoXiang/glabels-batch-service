@@ -45,6 +45,8 @@ class PdfMerger:
         self._pool = pool
         try:
             future = pool.submit(worker_identity)
+            # In supported CPython, spawn submit registers the child before it
+            # returns. Retain its handle now: active_children prunes exited ones.
             children = {p.pid: p for p in mp.active_children()}
             pid = await asyncio.wait_for(
                 asyncio.shield(asyncio.wrap_future(future)), 15

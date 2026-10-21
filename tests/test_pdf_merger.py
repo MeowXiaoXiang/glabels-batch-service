@@ -113,3 +113,35 @@ async def test_worker_limits_reject_before_publication_and_remain_usable(tmp_pat
         assert merger.restarts == 0
     finally:
         await merger.close()
+
+
+@pytest.mark.asyncio
+async def test_repeated_cold_start_and_external_kill_rebuild(tmp_path):
+    source = create_pdf(tmp_path / "source.pdf", 1)
+
+    async def cold_start():
+        merger = PdfMerger()
+        try:
+            await merger.start()
+            child = merger._child
+            assert child is not None and child.is_alive()
+            assert await merger.merge([source], None) == 1
+        finally:
+            await merger.close()
+        assert child.exitcode == 0 and not child.is_alive()
+
+    for _ in range(3):
+        await asyncio.gather(*(cold_start() for _ in range(3)))
+    merger = PdfMerger()
+    try:
+        await merger.start()
+        for expected_restarts in range(1, 6):
+            child = merger._child
+            child.kill()
+            with pytest.raises(BrokenProcessPool):
+                await merger.merge([source], None)
+            assert child.exitcode is not None and not child.is_alive()
+            assert merger.healthy and merger.restarts == expected_restarts
+            assert await merger.merge([source], None) == 1
+    finally:
+        await merger.close()

@@ -77,3 +77,56 @@ async def test_continuous_merges_allow_render_to_progress_on_small_budget(budget
     final = await asyncio.wait_for(waiting_merge, 1)
     final.release()
     assert scheduler.used == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budget", [1, 2, 3, 7])
+async def test_repeated_mixed_producers_and_cancellations_all_progress(budget):
+    scheduler = ResourceScheduler(budget)
+    completed = {}
+
+    async def produce(kind, actor):
+        completed[actor] = 0
+        for _ in range(40):
+            async with await scheduler.acquire(kind, actor):
+                sample = scheduler.snapshot()
+                assert (
+                    sample["tokens_used"]
+                    == sample["render_active"]
+                    + sample["merge_active"] * sample["merge_cost"]
+                )
+                assert sample["tokens_used"] <= budget and sample["merge_active"] <= 1
+                await asyncio.sleep(0)
+                completed[actor] += 1
+
+    async def cancel_waiters():
+        for i in range(80):
+            task = asyncio.create_task(
+                scheduler.acquire("merge" if i % 2 else "render", "cancel")
+            )
+            await asyncio.sleep(0)
+            if task.done():
+                task.result().release()
+            else:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+    async with asyncio.timeout(20):
+        await asyncio.gather(
+            *(produce("render", f"R{i}") for i in range(8)),
+            *(produce("merge", f"M{i}") for i in range(3)),
+            cancel_waiters(),
+        )
+    assert len(completed) == 11 and set(completed.values()) == {40}
+    sample = scheduler.snapshot()
+    assert all(
+        sample[key] == 0
+        for key in (
+            "tokens_used",
+            "render_active",
+            "merge_active",
+            "render_queued",
+            "merge_queued",
+        )
+    )
