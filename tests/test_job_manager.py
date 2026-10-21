@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 from uuid import uuid4
 
 import pikepdf
@@ -228,3 +229,126 @@ async def test_cleanup_keeps_index_until_artifact_deletion_succeeds(
         assert await manager.store.rows("SELECT * FROM jobs") == []
     finally:
         await manager.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistent", [False, True])
+async def test_sqlite_write_failure_settles_pending_or_leaves_restart_evidence(
+    service_settings, monkeypatch, persistent
+):
+    service_settings.MAX_INFLIGHT_JOBS = 1
+    service_settings.MAX_PENDING_JOBS = 3
+    service_settings.SHUTDOWN_TIMEOUT = 0.05
+    manager = JobManager(service_settings)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def active_job(identifier, request):
+        await manager.store.stage(identifier, "rendering")
+        entered.set()
+        await release.wait()
+        await manager.store.fail(identifier, "test_finished", "Test operation stopped")
+
+    monkeypatch.setattr(manager.pipeline, "run", active_job)
+    await manager.start()
+    request = LabelRequest(template_name="demo.glabels", data=[{"ITEM": "A"}])
+
+    def deny_write(action, table, *args):
+        denied = action == sqlite3.SQLITE_INSERT or (
+            persistent and action == sqlite3.SQLITE_UPDATE
+        )
+        return sqlite3.SQLITE_DENY if table == "jobs" and denied else sqlite3.SQLITE_OK
+
+    try:
+        active = await manager.submit_job(request)
+        await asyncio.wait_for(entered.wait(), 5)
+        queued = [await manager.submit_job(request) for _ in range(2)]
+        await manager.store._io(lambda: manager.store.db.set_authorizer(deny_write))
+        with pytest.raises(sqlite3.DatabaseError):
+            await manager.submit_job(request)
+        await asyncio.wait_for(manager.failure.wait(), 2)
+        assert not manager.ready and not manager.accepting
+        await asyncio.wait_for(asyncio.shield(manager._failure_cleanup), 5)
+        assert not manager.pending and active in manager.active
+        rows = [await manager.store.get(identifier) for identifier in queued]
+        if persistent:
+            assert all(
+                row["status"] == "pending" and row["expires_at"] is None for row in rows
+            )
+        else:
+            assert all(
+                row["status"] == "failed"
+                and row["error_code"] == "execution_unavailable"
+                and row["expires_at"] is not None
+                for row in rows
+            )
+        with pytest.raises(CapacityError):
+            await manager.submit_job(request)
+        if not persistent:
+            release.set()
+            await asyncio.wait_for(manager._idle.wait(), 5)
+            assert not manager.active
+    finally:
+        # Keep the persistent fault in place through cancellation/recovery: a
+        # failed metadata write must not bypass child/store ownership cleanup.
+        if not persistent:
+            release.set()
+        await manager.stop()
+    assert not manager.active
+    assert manager.merger._pool is None
+    restored = JobManager(service_settings)
+    await restored.start()
+    try:
+        for identifier in queued:
+            job = await restored.get_job(identifier)
+            assert job.status == "failed"
+            assert job.error.code == (
+                "interrupted" if persistent else "execution_unavailable"
+            )
+        assert (await restored.store.rows("PRAGMA integrity_check"))[0][
+            "integrity_check"
+        ] == "ok"
+    finally:
+        await restored.stop()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_write_failure_still_cancels_active_work(
+    service_settings, monkeypatch
+):
+    service_settings.MAX_INFLIGHT_JOBS = 1
+    service_settings.SHUTDOWN_TIMEOUT = 0.01
+    manager = JobManager(service_settings)
+    cancelled = asyncio.Event()
+
+    async def hang(*args):
+        try:
+            await asyncio.sleep(60)
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(manager.pipeline, "run", hang)
+    await manager.start()
+    request = LabelRequest(template_name="demo.glabels", data=[{"ITEM": "A"}])
+    identifiers = [await manager.submit_job(request) for _ in range(2)]
+    await manager.store._io(
+        lambda: manager.store.db.set_authorizer(
+            lambda action, *args: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_UPDATE
+                else sqlite3.SQLITE_OK
+            )
+        )
+    )
+    await asyncio.wait_for(manager.stop(), 10)
+    assert cancelled.is_set() and not manager.active
+    restored = JobManager(service_settings)
+    await restored.start()
+    try:
+        assert all(
+            [
+                (await restored.get_job(identifier)).error.code == "interrupted"
+                for identifier in identifiers
+            ]
+        )
+    finally:
+        await restored.stop()

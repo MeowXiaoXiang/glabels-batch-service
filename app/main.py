@@ -1,5 +1,6 @@
 """FastAPI lifespan owns exactly one local coordinator and persistent store."""
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
@@ -30,7 +31,9 @@ from app.core.logger import setup_logger
 from app.services.job_manager import JobManager
 
 
-def create_app(cfg: Settings | None = None) -> FastAPI:
+def create_app(
+    cfg: Settings | None = None, *, on_failure: Callable[[], None] | None = None
+) -> FastAPI:
     cfg = cfg or settings
 
     @asynccontextmanager
@@ -40,9 +43,21 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
         application.state.job_manager = jobs
         application.state.start_time = datetime.now(UTC)
         await jobs.start()
+
+        async def watch_failure() -> None:
+            await jobs.failure.wait()
+            if on_failure is not None:
+                on_failure()
+
+        watcher = (
+            asyncio.create_task(watch_failure()) if on_failure is not None else None
+        )
         try:
             yield
         finally:
+            if watcher is not None:
+                watcher.cancel()
+                await asyncio.gather(watcher, return_exceptions=True)
             try:
                 await jobs.stop()
             finally:
@@ -185,13 +200,45 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
 
 app = create_app()
 
-if __name__ == "__main__":
+
+def run() -> None:
     import uvicorn
 
-    uvicorn.run(
-        "app.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.RELOAD,
-        limit_concurrency=128,
+    if settings.RELOAD:
+        uvicorn.run(
+            "app.main:app",
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=True,
+            limit_concurrency=128,
+            timeout_graceful_shutdown=5,
+        )
+        return
+
+    # The ASGI app cannot shut down its host. This launcher owns Uvicorn and
+    # requests its normal shutdown, including lifespan cleanup, on fatal failure.
+    application = create_app(
+        settings, on_failure=lambda: setattr(server, "should_exit", True)
     )
+    server = uvicorn.Server(
+        uvicorn.Config(
+            application,
+            host=settings.HOST,
+            port=settings.PORT,
+            workers=1,
+            limit_concurrency=128,
+            timeout_graceful_shutdown=5,
+        )
+    )
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        pass
+    if not server.started:
+        raise SystemExit(3)
+    if application.state.job_manager.failure.is_set():
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    run()

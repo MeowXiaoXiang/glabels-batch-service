@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
-# uv is mounted only for installation; production runs Uvicorn directly.
+# uv is mounted only for installation.
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     uv sync --locked --no-dev --no-cache && uv pip check
 COPY app ./app
@@ -18,7 +18,7 @@ RUN mkdir -p output temp state logs && glabels-3-batch --help >/dev/null
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/ready || exit 1
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--limit-concurrency", "128", "--timeout-graceful-shutdown", "5"]
+CMD ["python", "-m", "app.main"]
 
 FROM runtime AS test
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils zbar-tools \

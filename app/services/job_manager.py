@@ -75,6 +75,8 @@ class JobManager:
         self._idle = asyncio.Event()
         self._idle.set()
         self._cleanup: asyncio.Task[None] | None = None
+        self._failure_cleanup: asyncio.Task[None] | None = None
+        self.failure = asyncio.Event()
         self.accepting = False
         self.healthy = True
         self.submitted = 0
@@ -84,14 +86,45 @@ class JobManager:
 
     @property
     def ready(self) -> bool:
+        return self.accepting and self.healthy and self._execution_healthy()
+
+    def _execution_healthy(self) -> bool:
         return (
-            self.accepting
-            and self.healthy
-            and self.scheduler.healthy
+            self.scheduler.healthy
             and self.merger.healthy
             and self.renderer.healthy
             and self.store.healthy
         )
+
+    def _unavailable(self) -> None:
+        self.healthy = False
+        self.accepting = False
+        if not self.failure.is_set():
+            self.failure.set()
+            logger.error("Coordinator unavailable; stopping admission and pending work")
+            self._failure_cleanup = asyncio.create_task(
+                self._fail_pending(
+                    "execution_unavailable", "Service cannot safely continue execution"
+                )
+            )
+
+    async def _fail_pending(self, code: str, message: str) -> None:
+        async with self._admission:
+            identifiers = [identifier for identifier, _ in self.pending]
+            self.pending.clear()
+            try:
+                for identifier in identifiers:
+                    await self.store.fail(identifier, code, message)
+                    self.failed += 1
+            except Exception:
+                # A broken store may not record terminal states. Keep its rows
+                # for startup reconciliation rather than claiming persistence.
+                logger.exception(
+                    "Cannot persist pending failures; restart will reconcile retained jobs"
+                )
+            finally:
+                if not self.active:
+                    self._idle.set()
 
     async def start(self) -> None:
         try:
@@ -149,7 +182,7 @@ class JobManager:
                     labels_per_page=req.labels_per_page,
                 )
             except Exception:
-                self.healthy = False
+                self._unavailable()
                 raise
             self.pending.append((identifier, req))
             self.submitted += 1
@@ -158,12 +191,12 @@ class JobManager:
             return identifier
 
     def _pump(self) -> None:
-        while (
-            self.pending
-            and len(self.active) < self.cfg.MAX_INFLIGHT_JOBS
-            and self.healthy
-            and self.scheduler.healthy
-        ):
+        if not self.healthy or not self._execution_healthy():
+            self._unavailable()
+            if not self.pending and not self.active:
+                self._idle.set()
+            return
+        while self.pending and len(self.active) < self.cfg.MAX_INFLIGHT_JOBS:
             identifier, request = self.pending.popleft()
             task = asyncio.create_task(self._execute(identifier, request))
             self.active[identifier] = task
@@ -179,7 +212,7 @@ class JobManager:
         self.active.pop(identifier, None)
         self.progress.pop(identifier, None)
         if not task.cancelled() and task.exception() is not None:
-            self.healthy = False
+            self._unavailable()
             logger.error("Job supervision failed: {}", type(task.exception()).__name__)
         self._pump()
 
@@ -193,12 +226,8 @@ class JobManager:
         except Exception as exc:
             logger.opt(exception=exc).error("Job {} failed", identifier)
             self.failed += 1
-            if (
-                not self.merger.healthy
-                or not self.renderer.healthy
-                or not self.scheduler.healthy
-            ):
-                self.healthy = False
+            if not self._execution_healthy():
+                self._unavailable()
             await self._recover_current(identifier, "generation_failed")
 
     async def _recover_current(self, identifier: str, code: str) -> None:
@@ -348,23 +377,27 @@ class JobManager:
         while True:
             await asyncio.sleep(self.cfg.CLEANUP_INTERVAL)
             try:
+                if not self._execution_healthy():
+                    self._unavailable()
+                    return
                 await self.cleanup()
             except Exception:
                 self.cleanup_failures += 1
-                self.healthy = False
+                self._unavailable()
                 logger.exception("Job cleanup/store unavailable")
+                return
 
     async def stop(self) -> None:
         async with self._admission:
             self.accepting = False
         try:
+            if self._failure_cleanup is not None:
+                await settle(self._failure_cleanup)
             await asyncio.wait_for(self._idle.wait(), self.cfg.SHUTDOWN_TIMEOUT)
         except TimeoutError:
-            while self.pending:
-                identifier, _ = self.pending.popleft()
-                await self.store.fail(
-                    identifier, "shutdown_cancelled", "Service stopped before execution"
-                )
+            await self._fail_pending(
+                "shutdown_cancelled", "Service stopped before execution"
+            )
             tasks = list(self.active.values())
             for task in tasks:
                 task.cancel()
@@ -373,6 +406,10 @@ class JobManager:
             if self._cleanup:
                 self._cleanup.cancel()
                 await asyncio.gather(self._cleanup, return_exceptions=True)
+            # Cancellation/recovery of an active job can discover a store fault
+            # during shutdown. Its pending cleanup still owns the open store.
+            if self._failure_cleanup is not None:
+                await settle(self._failure_cleanup)
             try:
                 await self.merger.close()
             finally:

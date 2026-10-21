@@ -29,6 +29,9 @@ a push.
   Logger setup receives its configuration explicitly. Uvicorn logs are separate.
 - `JobManager` owns admission and lifecycle; `job_pipeline.py` dispatches render
   and merge work through the shared weighted CPU budget.
+- Fatal coordinator faults stop admission and settle queued jobs; failed store
+  writes leave rows for restart reconciliation. The non-reloading project launcher
+  owns Uvicorn shutdown and exits nonzero. Preserve that lifecycle in Docker.
 - `job_store.py` persists minimal job metadata in SQLite. One instance and one
   Uvicorn worker own a store. Completed IDs and downloads survive normal restart
   until their original expiry; unfinished work is interrupted, not resumed.

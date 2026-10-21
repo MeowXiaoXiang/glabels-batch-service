@@ -28,7 +28,7 @@ uv run --locked --no-dev python -m app.main
 
 已驗證的 runtime 為 Python 3.14。uv 將依賴裝入專案自己的 `.venv`，不修改系統 Python 套件；使用 Docker 時不需要在主機另外裝 uv。
 
-`HOST`、`PORT`、`RELOAD` 用於 `python -m app.main` 啟動方式。Docker 的啟動命令固定使用容器內的 8000 port；要換主機 port，請修改 Compose 的 port mapping。Docker 與 `python -m app.main` 都把 Uvicorn 並行上限設為128。
+Docker 與本機都使用 `python -m app.main` 啟動，套用 `HOST`、`PORT`、`RELOAD`，並把 Uvicorn 並行上限設為128。正式部署保留 `RELOAD=false`。容器預設 port 為8000；改容器 port 時，port mapping 和 health check 也要一起調整。只想換主機 port，則修改 Compose 的 port mapping 即可。
 
 API 沒有內建身分驗證，請部署在可信任的網路，或由前方 gateway 控制存取。
 
@@ -137,11 +137,13 @@ queue、inflight、request、records×copies、batch、PDF pages／bytes、works
 
 SIGTERM 先停止接單並等待已接受的工作完成，超過期限再停止及回收子程序。`/health` 是存活檢查，`/ready` 檢查協調器是否運行且健康，不檢查佇列或磁碟餘裕；即使 ready，提交仍可能因容量不足回503。過大 body 回413。一般 process／container restart 已納入保存契約，突然斷電的 volume 耐久度需另外驗證。
 
+協調器或 store 發生無法安全繼續的故障時，會停止接單，尚未派送的工作標為 `failed/execution_unavailable`，執行中的工作依既有停止期限收束。若 SQLite 持續無法寫入，未完成紀錄保留給重啟復原。預設啟動入口（`python -m app.main`，關閉 reload）會要求 Uvicorn 正常關閉並以 exit code 1 退出，讓 Compose 的 restart policy 重啟；已完成結果保留原到期時間。若自行用其他 ASGI 方式啟動，需由該部署在 readiness 失敗時安排重啟，app 無法直接關閉不由自己管理的 server。開發用 reload 模式發生此類故障時，也需重新啟動或修改原始碼觸發重載。
+
 ## 驗證與升級
 
 依賴與工具設定集中在 `pyproject.toml`：正式依賴放 `project.dependencies`，開發工具放 `dependency-groups.dev`。`uv.lock` 由工具產生並一起進 Git，鎖住 Windows／Linux 所需的間接版本與套件雜湊，不手動維護另一份 txt。
 
-開發環境執行 `uv sync --locked`，測試用 `uv run --locked python -m pytest`。CI／Docker 同樣使用 `--locked`；宣告與 lock 不一致就失敗，正式部署加上 `--no-dev`。Python／uv 建置映像固定 digest，正式容器直接啟動 Uvicorn，uv 僅在安裝時掛載。gLabels、Qt／GTK、字型與 OS 套件由部署環境另外管理，預設 Docker image 安裝 GTK 所需套件；依賴更新方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+開發環境執行 `uv sync --locked`，測試用 `uv run --locked python -m pytest`。CI／Docker 同樣使用 `--locked`；宣告與 lock 不一致就失敗，正式部署加上 `--no-dev`。Python／uv 建置映像固定 digest，正式容器使用專案的 Uvicorn 啟動入口，uv 僅在安裝時掛載。gLabels、Qt／GTK、字型與 OS 套件由部署環境另外管理，預設 Docker image 安裝 GTK 所需套件；依賴更新方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 使用 [tests/README.md](tests/README.md) 的品質檢查與 GTK／Qt container tests。正式 image 不放 research、tests、Qt 編譯工具或 qpdf CLI；服務程式不解析模板內容。
 

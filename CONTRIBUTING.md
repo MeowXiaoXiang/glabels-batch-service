@@ -37,7 +37,7 @@ together. `--locked` must remain enabled in CI and Docker builds.
 
 Production installs use `uv sync --locked --no-dev`; a local production launch
 through uv also needs `uv run --locked --no-dev ...` to keep development tools
-excluded. Docker launches the installed Uvicorn directly. Renderer executables,
+excluded. Docker uses the project's Uvicorn launcher. Renderer executables,
 Qt/GTK libraries, and fonts are managed by the deployment rather than uv.
 
 CI exports a temporary runtime requirements file from the lockfile for

@@ -47,9 +47,10 @@ bodies.
 
 Body admission concurrency is bounded before JSON parsing by the pending plus
 inflight capacity. The Docker command and `python -m app.main` also set Uvicorn's
-concurrency limit to 128. In Docker, the command binds to port 8000; `HOST`,
-`PORT` and `RELOAD` configure only the `python -m app.main` launcher. Change
-Compose's port mapping to use a different host port.
+concurrency limit to 128. Both use the project launcher and honor `HOST`, `PORT`
+and `RELOAD`. Keep `RELOAD=false` in production. The default container port is
+8000; changing it also requires updating port mappings and health checks. Change
+only Compose's port mapping to use a different host port.
 
 The API has no built-in authentication. Deploy it on a trusted network or behind
 a gateway that controls access.
@@ -255,6 +256,16 @@ the shared scheduler. Crash/timeout recovery confirms actual process exit before
 releasing the lease or deleting its workspace. An unconfirmed exit makes the
 coordinator unavailable for a controlled restart.
 
+An unrecoverable coordinator/store failure stops admission and fails queued jobs
+with `execution_unavailable`. Running jobs retain the normal shutdown deadline.
+If SQLite cannot record a failure, its unfinished rows remain for startup
+reconciliation. The default launcher (`python -m app.main`, with reload disabled)
+requests Uvicorn shutdown and exits with code 1 so Compose's restart policy can
+restart it. Completed results keep their original expiry. Direct ASGI hosting
+must arrange its own restart when readiness fails; the app cannot stop a server
+it does not own. Development reload mode also requires restarting after a fatal
+failure or changing a source file.
+
 Configuration bounds queued/inflight jobs, request size, records×copies, batches,
 PDF size/pages, workspace size and disk headroom. Workspace/disk checks run at
 operation boundaries and periodically during rendering; container limits remain
@@ -308,7 +319,7 @@ tests, Qt build tools or qpdf CLI. The service does not parse template contents.
 tool settings. Commit the generated `uv.lock` with dependency changes; it locks
 transitive versions and artifact hashes for Windows and Linux. CI and Docker use
 `--locked` and fail when the declarations and lockfile disagree. Production
-installs exclude the dev group and launch Uvicorn directly; uv is only mounted
+installs exclude the dev group and use the project's Uvicorn launcher; uv is only mounted
 during installation. The Python and uv build images are pinned by digest.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dependency updates. gLabels, Qt/GTK,
 fonts, and other OS packages are managed by the deployment, separately from uv;
