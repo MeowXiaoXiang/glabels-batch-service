@@ -32,7 +32,7 @@ jobs:
         run: |
           uv export --locked --no-dev --no-emit-project --output-file "$RUNNER_TEMP/runtime-requirements.txt"
           uv run --locked python -m pip_audit -r "$RUNNER_TEMP/runtime-requirements.txt" --no-deps --disable-pip
-      - run: uv run --locked python -m pytest --cov-report=xml
+      - run: uv run --locked python -m pytest --cov-report=xml --cov-fail-under=80
       - uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
           files: ./coverage.xml
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: docker build --target ${{ matrix.target }} -t labels-test .
-      - run: docker run --rm --cpus 4 --memory 2g labels-test pytest --cov-report=xml
+      - run: docker run --rm --cpus 4 --memory 2g labels-test pytest --cov-report=xml --cov-fail-under=80
 
   runtime-smoke:
     needs: renderer-containers
@@ -56,14 +56,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: docker build -t labels-runtime .
-      - name: Readiness and graceful stop
+      - name: Generate, download and gracefully stop
         run: |
-          docker run -d --name labels-ci-runtime --cpus 2 --memory 1g -p 127.0.0.1:18000:8000 labels-runtime
+          docker run -d --name labels-ci-runtime --cpus 2 --memory 1g -e MAX_LABELS_PER_BATCH=2 -p 127.0.0.1:18000:8000 labels-runtime
           for attempt in $(seq 1 40); do
             if curl -fsS http://127.0.0.1:18000/ready; then break; fi
             sleep 1
           done
           curl -fsS http://127.0.0.1:18000/ready
+          docker cp tests/fixtures/gtk.glabels labels-ci-runtime:/app/templates/demo.glabels
+          python tests/runtime_smoke.py http://127.0.0.1:18000
           docker stop --time 60 labels-ci-runtime
           test "$(docker inspect --format '{{.State.ExitCode}}' labels-ci-runtime)" = 0
       - name: Logs and teardown

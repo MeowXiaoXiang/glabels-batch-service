@@ -1,7 +1,19 @@
 coverage:
   precision: 2
   round: down
-  range: "70, 100"
+  range: [70, 100]
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 5%
+        branches:
+          - main
+          - develop
+    patch:
+      default:
+        target: 75%
+        threshold: 5%
 
 ignore:
   - tests
@@ -15,19 +27,6 @@ comment:
   layout: reach, diff, flags, tree
   behavior: default
   require_changes: false
-
-status:
-  project:
-    default:
-      target: 80%
-      threshold: 5%
-      branches:
-        - main
-        - develop
-  patch:
-    default:
-      target: 75%
-      threshold: 5%
 
 flags:
   unit:

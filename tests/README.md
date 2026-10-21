@@ -57,15 +57,25 @@ and should not be committed. Branch coverage is not enabled. Worker behavior is
 tested in real spawned processes, whose executed lines may not appear in the
 parent's coverage report. A low percentage in `pdf_worker.py` alone does not
 mean merging went untested.
+CI requires at least 80% statement coverage for each full suite. Targeted test
+runs can use `--no-cov`; do not use their partial totals as full-suite coverage.
 
-CI also audits the locked Linux runtime dependencies and checks readiness and
-graceful stop in the production image. See the exact commands in
+CI also audits the locked Linux runtime dependencies and submits a real HTTP
+job, downloads its PDF and checks graceful stop in the production image.
+`runtime_smoke.py` uses only the standard library against a running service;
+CI supplies `fixtures/gtk.glabels` as its demo template. See the exact commands in
 [ci.yml](../.github/workflows/ci.yml). These checks do not establish a production
 capacity guarantee or replace acceptance with actual templates and printers.
 
 Quality regression tests also verify app-specific deployment limits and rate counters,
 log severity floors and sink failures, OpenAPI media/error contracts, and execution
 failures that must retain resource accounting.
+
+Regression tests exercise repeated cold spawn and external worker kills,
+continuous mixed scheduler producers with cancellation, transient/persistent
+SQLite write failures, and fatal shutdown through a separate server process.
+`fixtures/failing_server.py` installs fault injection only in that subprocess;
+it is never part of the runtime image. Actual OOM recovery is not exercised by CI.
 
 TestClient uses the locked `httpx2` development dependency. Keep that backend
 consistent across Windows and renderer-container tests; plain `httpx` is not
