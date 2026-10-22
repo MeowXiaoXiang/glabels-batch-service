@@ -10,13 +10,13 @@ requires-python = ">=3.14"
 license = {text = "MIT"}
 dependencies = [
     "fastapi==0.143.0",
-    "pydantic==2.14.0",
-    "pydantic-settings==2.15.0",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
     "uvicorn[standard]==0.54.0",
     "loguru==0.7.3",
     "slowapi==0.1.10",
     "prometheus-client==0.26.0",
-    "pikepdf==10.16.0",
+    "pikepdf==10.17.0",
 ]
 
 [dependency-groups]
@@ -24,15 +24,15 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    "httpx2==2.14.0",
+    "httpx2==2.16.0",
     "mypy==2.4.0",
-    "ruff==0.17.0",
+    "ruff==0.17.1",
     "bandit==1.9.4",
     "pip-audit==2.10.1",
 ]
 
 [tool.uv]
-required-version = "==0.12.10"
+required-version = "==0.13.5"
 package = false
 
 # =============================================================================

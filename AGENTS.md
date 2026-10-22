@@ -9,12 +9,14 @@ a push.
 
 - Use the existing local tools; Windows uses PowerShell. Docker provides the
   GTK/Qt renderer test environments.
-- Use uv 0.12.10 and the committed `uv.lock`. `pyproject.toml` contains runtime
+- Use uv 0.13.5 and the committed `uv.lock`. `.python-version` selects Python
+  3.14.9, matching CI and Docker. `pyproject.toml` contains runtime
   dependencies, the `dev` dependency group, and tool settings. Do not create a
   parallel requirements or constraints file.
 - Run `uv sync --locked`, then `uv run --locked python -m pytest`, Ruff check and
   format checks, Mypy, Bandit, and `uv pip check`. Follow the CI workflow for the
-  exported-lock runtime audit and container checks.
+  exported-lock runtime/full dependency audits and container checks. The weekly
+  scheduled job checks both Windows and Linux without rebuilding renderers.
 - Host renderer tests skip explicitly if a binary is unavailable. Use fresh
   `test` and `qt-test` Docker targets to exercise real GTK and Qt respectively.
 - Keep the version in `app/__init__.py` synchronized with `pyproject.toml`.

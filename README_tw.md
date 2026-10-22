@@ -19,7 +19,7 @@ curl.exe http://localhost:8000/ready
 
 Compose 會持久掛載 state、output、templates 與 logs。state 保存 SQLite，output 保存 final，兩者都要保留。每個 store 只支援一個服務實例、一個 Uvicorn worker；第二個 owner 會被拒絕，不能直接加 workers 擴充。
 
-不使用 Docker 時，請先準備 Python 3.14 以上、可運作的 gLabels batch executable、原生函式庫與字型，再使用 uv 0.12.10（需要安裝時可執行 `python -m pip install uv==0.12.10`）：
+不使用 Docker 時，請先準備 Python 3.14.9、可運作的 gLabels batch executable、原生函式庫與字型，再使用 uv 0.13.5。請沿用原本安裝 uv 的方式更新；若由 pip 安裝，可執行 `python -m pip install --upgrade uv==0.13.5`：
 
 ```powershell
 uv sync --locked --no-dev
@@ -27,6 +27,8 @@ uv run --locked --no-dev python -m app.main
 ```
 
 已驗證的 runtime 為 Python 3.14。uv 將依賴裝入專案自己的 `.venv`，不修改系統 Python 套件；使用 Docker 時不需要在主機另外裝 uv。
+
+`.python-version` 固定本機 uv 使用的 Python patch，與 CI、Docker 相同。更新系統 Python 不會自動替換既有 venv 的 interpreter，需另外同步或重建環境。
 
 Docker 與本機都使用 `python -m app.main` 啟動，套用 `HOST`、`PORT`、`RELOAD`，並把 Uvicorn 並行上限設為128。正式部署保留 `RELOAD=false`。容器預設 port 為8000；改容器 port 時，port mapping 和 health check 也要一起調整。只想換主機 port，則修改 Compose 的 port mapping 即可。
 
@@ -146,6 +148,8 @@ SIGTERM 先停止接單並等待已接受的工作完成，超過期限再停止
 開發環境執行 `uv sync --locked`，測試用 `uv run --locked python -m pytest`。CI／Docker 同樣使用 `--locked`；宣告與 lock 不一致就失敗，正式部署加上 `--no-dev`。Python／uv 建置映像固定 digest，正式容器使用專案的 Uvicorn 啟動入口，uv 僅在安裝時掛載。gLabels、Qt／GTK、字型與 OS 套件由部署環境另外管理，預設 Docker image 安裝 GTK 所需套件；依賴更新方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 使用 [tests/README.md](tests/README.md) 的品質檢查與 GTK／Qt container tests。正式 image 不放 research、tests、Qt 編譯工具或 qpdf CLI；服務程式不解析模板內容。
+
+CI 同時稽核 runtime 與開發依賴。workflow 合入預設分支後，每週另在 Ubuntu／Windows 跑輕量安全稽核，不重建 renderer 映像；平常 push／PR 與手動執行保留完整檢查。OS 原生函式庫與工具內嵌的憑證庫仍需另外追蹤上游公告。
 
 v3 直接更新 API 與設定：移除 running、模板解析欄位、MAX_PARALLEL、KEEP_CSV，請對照新的 `.env.example`。不維護舊版相容層。
 

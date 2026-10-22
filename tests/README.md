@@ -1,7 +1,8 @@
 # Tests
 
-Use Python 3.14 (the tested runtime) and uv 0.12.10. Install uv if needed with
-`python -m pip install uv==0.12.10`, then sync the committed lockfile:
+Use Python 3.14.9 (selected by `.python-version`) and uv 0.13.5. Update uv with
+its existing installation method; for a pip-managed copy, use
+`python -m pip install --upgrade uv==0.13.5`, then sync the committed lockfile:
 
 ```sh
 uv sync --locked
@@ -60,7 +61,11 @@ mean merging went untested.
 CI requires at least 80% statement coverage for each full suite. Targeted test
 runs can use `--no-cov`; do not use their partial totals as full-suite coverage.
 
-CI also audits the locked Linux runtime dependencies and submits a real HTTP
+CI audits the locked Linux runtime dependencies and the full dependency export
+(including dev tools) on Linux and Windows. A weekly scheduled audit checks the
+full export on both platforms without renderer builds; scheduled workflows run
+from the default branch. Manual workflow dispatch runs the complete CI pipeline.
+CI also submits a real HTTP
 job, downloads its PDF and checks graceful stop in the production image.
 `runtime_smoke.py` uses only the standard library against a running service;
 CI supplies `fixtures/gtk.glabels` as its demo template. See the exact commands in

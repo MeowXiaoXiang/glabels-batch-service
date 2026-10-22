@@ -24,7 +24,7 @@ Run one service instance and one Uvicorn worker per store. A second owner of the
 same SQLite store is rejected. SQLite is a local result index, not a distributed
 queue. The default Compose limits are 4 CPUs and 2 GB memory.
 
-To run without Docker, use Python 3.14 or newer and install a working gLabels
+To run without Docker, use Python 3.14.9 and install a working gLabels
 batch executable, its native libraries, and fonts:
 
 ```sh
@@ -32,10 +32,14 @@ uv sync --locked --no-dev
 uv run --locked --no-dev python -m app.main
 ```
 
-Local commands use uv 0.12.10; install that version if needed with
-`python -m pip install uv==0.12.10`. Docker includes the installation step and
+Local commands use uv 0.13.5. Update uv through the method that installed it;
+for a pip-managed copy, use `python -m pip install --upgrade uv==0.13.5`.
+Docker includes the installation step and
 does not require uv on the host. Python 3.14 is the tested runtime; uv uses a
 project-local `.venv` without changing your system Python packages.
+The committed `.python-version` selects the tested Python patch for local uv
+commands; Docker and CI use the same patch. Updating the system interpreter does
+not automatically replace an existing virtual environment.
 
 Interactive documentation: `/docs`. `/health` is liveness; `/ready` indicates
 whether the coordinator is running and healthy. Readiness does not check queue
@@ -324,6 +328,12 @@ during installation. The Python and uv build images are pinned by digest.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dependency updates. gLabels, Qt/GTK,
 fonts, and other OS packages are managed by the deployment, separately from uv;
 the default Docker image installs the GTK stack.
+
+CI audits both runtime and development dependencies. A lightweight weekly audit
+runs on Ubuntu and Windows after the workflow reaches the default branch; it
+does not rebuild renderer images. Normal pushes/PRs and manual runs retain the
+full checks. Native OS libraries and certificate stores bundled inside tools
+still need separate upstream review.
 
 Version 3 changes the API and environment configuration directly: `running`,
 template introspection fields, `MAX_PARALLEL` and `KEEP_CSV` are removed. Replace

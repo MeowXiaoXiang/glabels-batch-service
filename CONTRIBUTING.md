@@ -4,9 +4,10 @@ Repository guidance for coding agents lives in [AGENTS.md](AGENTS.md).
 
 ## Dependencies and local environment
 
-Use Python 3.14 and uv 0.12.10, the version required by `pyproject.toml` and used
-by CI and Docker. If uv is not installed, run
-`python -m pip install uv==0.12.10`. From the repository root:
+Use Python 3.14.9 and uv 0.13.5, the versions selected by `.python-version`,
+`pyproject.toml`, CI and Docker. Update uv with its existing installation method;
+for a pip-managed installation, use `python -m pip install --upgrade uv==0.13.5`.
+From the repository root:
 
 ```sh
 uv sync --locked
@@ -23,7 +24,7 @@ it; do not edit it manually or maintain parallel requirements/constraints files.
 Use explicit versions when adding or upgrading a direct dependency:
 
 ```sh
-uv add 'pikepdf==10.16.0'
+uv add 'pikepdf==10.17.0'
 uv add --dev 'pytest==9.1.1'
 ```
 
@@ -33,17 +34,23 @@ dependency within the declared constraints, use
 `uv sync --locked` and complete the checks in [tests/README.md](tests/README.md), including
 the affected renderer container tests. Review uv upgrades separately and update
 the required version, CI installer, Docker image digest, and documentation
-together. `--locked` must remain enabled in CI and Docker builds.
+together. Keep `.python-version`, CI and the Docker Python tag/digest aligned
+when changing the tested runtime patch. `--locked` must remain enabled in CI
+and Docker builds.
 
 Production installs use `uv sync --locked --no-dev`; a local production launch
 through uv also needs `uv run --locked --no-dev ...` to keep development tools
 excluded. Docker uses the project's Uvicorn launcher. Renderer executables,
 Qt/GTK libraries, and fonts are managed by the deployment rather than uv.
 
-CI exports a temporary runtime requirements file from the lockfile for
-`pip-audit`. Such exports are generated integration artifacts, not another
+CI exports temporary runtime and full dependency requirements from the lockfile
+for `pip-audit`; the full export includes development tools and is checked on
+Ubuntu and Windows. The weekly scheduled workflow runs that audit without the
+renderer builds and only becomes active on the default branch.
+Such exports are generated integration artifacts, not another
 dependency source to commit. The lockfile records versions and artifact hashes;
-periodic dependency review is still needed for security updates.
+periodic dependency review is still needed for security updates. Package audits
+do not replace review of tool binaries, their vendored libraries or OS packages.
 
 ## Commit messages
 
