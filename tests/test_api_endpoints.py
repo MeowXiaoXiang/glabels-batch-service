@@ -1,469 +1,109 @@
-#!/usr/bin/env python3
-"""
-Unit tests for API Endpoints
-============================
+import sqlite3
+import time
+from contextlib import closing
+from uuid import uuid4
 
-Covers essential API functionality:
-- POST /labels/print (job submission validation)
-- GET /labels/templates (template listing)
-- GET /labels/jobs/{job_id}/stream (SSE streaming)
-- Basic error handling
-"""
-
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime
-from pathlib import Path
-from unittest.mock import patch
-
-import pytest
+import pikepdf
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.services.job_manager import JobManager
+from app.main import create_app
+from app.services.job_store import SCHEMA, now_ms
 
 
-class FakeJobManager:
-    def __init__(self):
-        self.jobs = {}
-
-    def start_workers(self):
-        return None
-
-    async def stop_workers(self):
-        return None
-
-    async def submit_job(self, req):
-        job_id = "test-job-id"
-        now = datetime.now(UTC)
-        self.jobs[job_id] = {
-            "status": "pending",
-            "filename": "test.pdf",
-            "template": req.template_name,
-            "error": None,
-            "created_at": now,
-            "started_at": None,
-            "finished_at": None,
-            "request": req.model_dump(),
-        }
-        return job_id
-
-    def get_job(self, job_id):
-        return self.jobs.get(job_id)
-
-    def list_jobs(self, limit=10):
-        items = list(self.jobs.items())
-        return [dict(job_id=jid, **data) for jid, data in items[:limit]]
-
-
-class TestAPIEndpoints:
-    @pytest.fixture
-    def client(self):
-        """Create test client for FastAPI app."""
-        with TestClient(app) as client:
-            yield client
-
-    @pytest.fixture
-    def client_with_fake_manager(self):
-        original_lifespan = app.router.lifespan_context
-
-        @asynccontextmanager
-        async def fake_lifespan(_app):
-            _app.state.job_manager = FakeJobManager()
-            yield
-            del _app.state.job_manager
-
-        app.router.lifespan_context = fake_lifespan
-        with TestClient(app) as client:
-            try:
-                yield client
-            finally:
-                app.router.lifespan_context = original_lifespan
-
-    def test_submit_labels_invalid_template_name(self, client):
-        """Should reject invalid template name."""
-        request_data = {
-            "template_name": "invalid.txt",  # Not .glabels
-            "data": [{"ITEM": "A001"}],
-            "copies": 1,
-        }
-
-        response = client.post("/labels/print", json=request_data)
-
-        assert response.status_code == 422
-        data = response.json()
-        assert "template_name must have .glabels extension" in str(data)
-
-    def test_health_check(self, client):
-        """Health endpoint should return status ok."""
-        response = client.get("/health")
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
-
-    def test_api_root(self, client):
-        """API root should return metadata."""
-        response = client.get("/")
-        assert response.status_code == 200
-        body = response.json()
-        assert "service" in body
-        assert "version" in body
-        assert body["docs"] == "/docs"
-
-    def test_submit_labels_success(self, client_with_fake_manager):
-        """Should submit a job successfully."""
-        request_data = {
-            "template_name": "demo.glabels",
-            "data": [{"ITEM": "A001", "CODE": "X123"}],
-            "copies": 1,
-        }
-        response = client_with_fake_manager.post("/labels/print", json=request_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["job_id"] == "test-job-id"
-
-    def test_submit_labels_empty_data(self, client_with_fake_manager):
-        """Should reject empty data array."""
-        request_data = {
-            "template_name": "demo.glabels",
-            "data": [],
-            "copies": 1,
-        }
-        response = client_with_fake_manager.post("/labels/print", json=request_data)
-        assert response.status_code == 422
-
-    def test_submit_labels_exceeds_field_length(
-        self, client_with_fake_manager, monkeypatch
-    ):
-        """Should reject fields exceeding MAX_FIELD_LENGTH."""
-        monkeypatch.setattr("app.schema.settings.MAX_FIELD_LENGTH", 5)
-        request_data = {
-            "template_name": "demo.glabels",
-            "data": [{"ITEM": "TOO-LONG", "CODE": "X123"}],
-            "copies": 1,
-        }
-        response = client_with_fake_manager.post("/labels/print", json=request_data)
-        assert response.status_code == 422
-
-    def test_submit_labels_exceeds_request_bytes(
-        self, client_with_fake_manager, monkeypatch
-    ):
-        """Should reject request body larger than MAX_REQUEST_BYTES."""
-        monkeypatch.setattr("app.api.print_jobs.settings.MAX_REQUEST_BYTES", 10)
-        request_data = {
-            "template_name": "demo.glabels",
-            "data": [{"ITEM": "A001", "CODE": "X123"}],
-            "copies": 1,
-        }
-        response = client_with_fake_manager.post(
+def test_full_public_contract_and_download(service_settings, fake_renderer):
+    with TestClient(create_app(service_settings)) as client:
+        assert client.get("/health").status_code == 200
+        assert client.get("/ready").json() == {"ready": True}
+        assert client.get("/labels/templates").json() == [{"name": "demo.glabels"}]
+        response = client.post(
             "/labels/print",
-            json=request_data,
-            headers={"Content-Length": "100"},
+            json={"template_name": "demo.glabels", "data": [{"ITEM": "A"}]},
+        )
+        assert response.status_code == 202
+        identifier = response.json()["job_id"]
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            job = client.get(f"/labels/jobs/{identifier}").json()
+            if job["status"] in ("done", "failed"):
+                break
+            time.sleep(0.02)
+        assert job["status"] == "done"
+        assert job["copy_order"] == "sets" and job["labels_per_page"] is None
+        assert "filename" not in job and "parent_id" not in job
+        assert job["download_url"] == f"/labels/jobs/{identifier}/download"
+        pdf = client.get(job["download_url"])
+        assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF-")
+        assert "data: " in client.get(f"/labels/jobs/{identifier}/stream").text
+        metrics = client.get("/metrics").text
+        assert "jobs_submitted_total 1.0" in metrics
+        assert identifier not in metrics
+        assert client.get("/labels/jobs?limit=-1").status_code == 422
+
+
+def test_body_limit_before_json_and_missing_template(service_settings, fake_renderer):
+    service_settings.MAX_REQUEST_BYTES = 128
+    with TestClient(create_app(service_settings)) as client:
+        # A chunked request has no Content-Length: actual bytes must be counted.
+        response = client.post(
+            "/labels/print",
+            content=iter([b"x" * 80, b"x" * 80]),
+            headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 413
-
-    def test_submit_labels_exceeds_max_labels(
-        self, client_with_fake_manager, monkeypatch
-    ):
-        """Should reject when label count exceeds MAX_LABELS_PER_JOB."""
-        monkeypatch.setattr("app.schema.settings.MAX_LABELS_PER_JOB", 2)
-        request_data = {
-            "template_name": "demo.glabels",
-            "data": [
-                {"ITEM": "A001", "CODE": "X123"},
-                {"ITEM": "A002", "CODE": "X124"},
-                {"ITEM": "A003", "CODE": "X125"},
-            ],
-            "copies": 1,
-        }
-        response = client_with_fake_manager.post("/labels/print", json=request_data)
-        assert response.status_code == 422
-
-    def test_submit_labels_exceeds_field_count(
-        self, client_with_fake_manager, monkeypatch
-    ):
-        """Should reject when field count exceeds MAX_FIELDS_PER_LABEL."""
-        monkeypatch.setattr("app.schema.settings.MAX_FIELDS_PER_LABEL", 1)
-        request_data = {
-            "template_name": "demo.glabels",
-            "data": [{"ITEM": "A001", "CODE": "X123"}],
-            "copies": 1,
-        }
-        response = client_with_fake_manager.post("/labels/print", json=request_data)
-        assert response.status_code == 422
-
-    def test_list_jobs_empty(self, client_with_fake_manager):
-        """Should return an empty list when no jobs exist."""
-        response = client_with_fake_manager.get("/labels/jobs")
-        assert response.status_code == 200
-        assert response.json() == []
-
-    def test_list_jobs_with_limit(self, client_with_fake_manager):
-        """Should respect limit when listing jobs."""
-        jm = app.state.job_manager
-        now = datetime.now(UTC)
-        for i in range(3):
-            jm.jobs[f"job-{i}"] = {
-                "status": "done",
-                "filename": f"file-{i}.pdf",
-                "template": "demo.glabels",
-                "error": None,
-                "created_at": now,
-                "started_at": now,
-                "finished_at": now,
-                "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
-            }
-
-        response = client_with_fake_manager.get("/labels/jobs?limit=2")
-        assert response.status_code == 200
-        assert len(response.json()) == 2
-
-    def test_download_job_not_done(self, client_with_fake_manager):
-        """Should return 409 when job is not done."""
-        jm = app.state.job_manager
-        now = datetime.now(UTC)
-        jm.jobs["pending-job"] = {
-            "status": "pending",
-            "filename": "pending.pdf",
-            "template": "demo.glabels",
-            "error": None,
-            "created_at": now,
-            "started_at": None,
-            "finished_at": None,
-            "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
-        }
-
-        response = client_with_fake_manager.get("/labels/jobs/pending-job/download")
-        assert response.status_code == 409
-
-    def test_download_job_success(
-        self, client_with_fake_manager, tmp_path, monkeypatch
-    ):
-        """Should download PDF when job is done and file exists."""
-        monkeypatch.chdir(tmp_path)
-        output_dir = Path("output")
-        output_dir.mkdir()
-        pdf_path = output_dir / "done.pdf"
-        pdf_path.write_text("pdf")
-
-        jm = app.state.job_manager
-        now = datetime.now(UTC)
-        jm.jobs["done-job"] = {
-            "status": "done",
-            "filename": "done.pdf",
-            "template": "demo.glabels",
-            "error": None,
-            "created_at": now,
-            "started_at": now,
-            "finished_at": now,
-            "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
-        }
-
-        response = client_with_fake_manager.get("/labels/jobs/done-job/download")
-        assert response.status_code == 200
-
-    def test_download_job_preview_inline(
-        self, client_with_fake_manager, tmp_path, monkeypatch
-    ):
-        """Should return inline Content-Disposition when preview=true."""
-        monkeypatch.chdir(tmp_path)
-        output_dir = Path("output")
-        output_dir.mkdir()
-        pdf_path = output_dir / "done.pdf"
-        pdf_path.write_text("pdf")
-
-        jm = app.state.job_manager
-        now = datetime.now(UTC)
-        jm.jobs["done-job"] = {
-            "status": "done",
-            "filename": "done.pdf",
-            "template": "demo.glabels",
-            "error": None,
-            "created_at": now,
-            "started_at": now,
-            "finished_at": now,
-            "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
-        }
-
-        response = client_with_fake_manager.get(
-            "/labels/jobs/done-job/download?preview=true"
+        response = client.post(
+            "/labels/print",
+            json={"template_name": "missing.glabels", "data": [{"ITEM": "A"}]},
         )
-        assert response.status_code == 200
-        assert response.headers.get("content-disposition", "").startswith("inline")
-
-
-class TestTemplateEndpoints:
-    """Tests for template listing and detail endpoints (v2.0.0 TemplateSummary)"""
-
-    @pytest.fixture
-    def client(self):
-        with TestClient(app) as client:
-            yield client
-
-    def _make_template_info(self, name="demo.glabels", has_headers=True):
-        from app.schema import TemplateInfo
-
-        fields = ["CODE", "ITEM"] if has_headers else ["1", "2"]
-        return TemplateInfo(
-            name=name,
-            format_type="CSV",
-            has_headers=has_headers,
-            fields=fields,
-            field_count=len(fields),
-            merge_type="Text/Comma/Line1Keys",
-        )
-
-    @patch("app.services.template_service.TemplateService.list_templates")
-    def test_list_templates_returns_summary_format(self, mock_list, client):
-        """GET /templates should return TemplateSummary (no fields/format_type/merge_type)."""
-        mock_list.return_value = [
-            self._make_template_info("demo.glabels", True),
-            self._make_template_info("non_head_demo.glabels", False),
-        ]
-
-        response = client.get("/labels/templates")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 2
-
-        # TemplateSummary fields only
-        for item in data:
-            assert "name" in item
-            assert "field_count" in item
-            assert "has_headers" in item
-            # TemplateInfo-only fields must NOT appear
-            assert "fields" not in item
-            assert "format_type" not in item
-            assert "merge_type" not in item
-
-    @patch("app.services.template_service.TemplateService.list_templates")
-    def test_list_templates_limit_param(self, mock_list, client):
-        """GET /templates?limit=1 should return at most 1 template."""
-        mock_list.return_value = [
-            self._make_template_info("a.glabels"),
-            self._make_template_info("b.glabels"),
-            self._make_template_info("c.glabels"),
-        ]
-
-        response = client.get("/labels/templates?limit=1")
-        assert response.status_code == 200
-        assert len(response.json()) == 1
-
-    @patch("app.services.template_service.TemplateService.list_templates")
-    def test_list_templates_limit_zero_returns_all(self, mock_list, client):
-        """GET /templates?limit=0 should return all templates."""
-        templates = [self._make_template_info(f"t{i}.glabels") for i in range(5)]
-        mock_list.return_value = templates
-
-        response = client.get("/labels/templates?limit=0")
-        assert response.status_code == 200
-        assert len(response.json()) == 5
-
-    @patch("app.services.template_service.TemplateService.get_template_info")
-    def test_get_template_detail_returns_full_info(self, mock_get, client):
-        """GET /templates/{name} should return full TemplateInfo with fields."""
-        mock_get.return_value = self._make_template_info()
-
-        response = client.get("/labels/templates/demo.glabels")
-        assert response.status_code == 200
-        data = response.json()
-        assert "fields" in data
-        assert "format_type" in data
-        assert "merge_type" in data
-        assert data["fields"] == ["CODE", "ITEM"]
-
-    @patch("app.services.template_service.TemplateService.get_template_info")
-    def test_get_template_detail_not_found(self, mock_get, client):
-        """GET /templates/{name} should return 404 for missing template."""
-        mock_get.side_effect = FileNotFoundError("not found")
-
-        response = client.get("/labels/templates/missing.glabels")
         assert response.status_code == 404
 
-    @patch("app.services.template_service.TemplateService.list_templates")
-    def test_list_templates_internal_error_sanitized(self, mock_list, client):
-        """GET /templates should not leak internal exception details."""
-        mock_list.side_effect = RuntimeError("db password leaked")
 
-        response = client.get("/labels/templates")
-        assert response.status_code == 500
-        assert response.json()["detail"] == "Failed to read templates"
-
-    @patch("app.services.template_service.TemplateService.get_template_info")
-    def test_get_template_detail_internal_error_sanitized(self, mock_get, client):
-        """GET /templates/{name} should not leak internal exception details."""
-        mock_get.side_effect = RuntimeError("sensitive stack trace")
-
-        response = client.get("/labels/templates/demo.glabels")
-        assert response.status_code == 500
-        assert response.json()["detail"] == "Failed to read template"
-
-
-class TestSSEEndpoint:
-    """Tests for Server-Sent Events streaming endpoint"""
-
-    @pytest.fixture
-    def client_with_state(self):
-        """Create test client with job_manager initialized."""
-        # Initialize job_manager in app state for testing
-        app.state.job_manager = JobManager()
-        client = TestClient(app)
-        yield client
-        # Cleanup
-        del app.state.job_manager
-
-    def test_stream_job_not_found(self, client_with_state):
-        """SSE should return 404 for non-existent job"""
-        response = client_with_state.get("/labels/jobs/nonexistent-job-id/stream")
-        assert response.status_code == 404
-        assert "Job not found" in response.json()["detail"]
-
-    def test_stream_completed_job(self, client_with_state):
-        """SSE should stream status and close for completed job"""
-
-        # Add a completed job to job_manager
-        jm = app.state.job_manager
-        job_id = "test-completed-job"
-        jm.jobs[job_id] = {
-            "status": "done",
-            "filename": "test.pdf",
-            "template": "demo.glabels",
-            "error": None,
-            "created_at": datetime.now(UTC),
-            "started_at": datetime.now(UTC),
-            "finished_at": datetime.now(UTC),
-            "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
+def test_batching_requires_valid_page_declaration_before_creating_job(
+    service_settings, fake_renderer
+):
+    with TestClient(create_app(service_settings)) as client:
+        payload = {
+            "template_name": "demo.glabels",
+            "data": [{"ITEM": x} for x in "ABC"],
         }
+        for declaration, message in [
+            ({}, "labels_per_page is required"),
+            ({"labels_per_page": 3}, "One declared page"),
+        ]:
+            response = client.post("/labels/print", json=payload | declaration)
+            assert response.status_code == 422
+            assert message in response.json()["detail"]
+        assert client.get("/labels/jobs").json() == []
 
-        # Stream should return event-stream content type
-        response = client_with_state.get(f"/labels/jobs/{job_id}/stream")
 
-        # For completed jobs, SSE returns immediately with final status
+def test_completed_job_still_downloads_after_restart(service_settings):
+    cfg = service_settings
+    identifier, timestamp = str(uuid4()), now_ms()
+    cfg.STATE_DIR.mkdir()
+    cfg.OUTPUT_DIR.mkdir()
+    artifact = cfg.OUTPUT_DIR / f"{identifier}.pdf"
+    with pikepdf.Pdf.new() as pdf:
+        pdf.add_blank_page()
+        pdf.save(artifact)
+    original = artifact.read_bytes()
+    with closing(sqlite3.connect(cfg.STATE_DIR / "jobs.sqlite3")) as db:
+        db.executescript(SCHEMA)
+        db.execute(
+            "INSERT INTO jobs(job_id,status,template_name,record_count,copies,copy_order,labels_per_page,batch_count,created_at,finished_at,expires_at,final_name,publication_intent_at) VALUES (?,'done','demo.glabels',1,1,'per_record',3,1,?,?,?,?,?)",
+            (
+                identifier,
+                timestamp,
+                timestamp,
+                timestamp + 60000,
+                identifier + ".pdf",
+                timestamp,
+            ),
+        )
+        db.commit()
+    with TestClient(create_app(cfg)) as client:
+        response = client.get(f"/labels/jobs/{identifier}")
         assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/event-stream")
-
-        # Check response contains status event
-        content = response.text
-        assert "event: status" in content
-        assert '"status": "done"' in content or '"status":"done"' in content
-
-    def test_stream_failed_job(self, client_with_state):
-        """SSE should stream error status for failed job"""
-
-        jm = app.state.job_manager
-        job_id = "test-failed-job"
-        jm.jobs[job_id] = {
-            "status": "failed",
-            "filename": "failed_job.pdf",  # filename is set even for failed jobs
-            "template": "demo.glabels",
-            "error": "Test error message",
-            "created_at": datetime.now(UTC),
-            "started_at": datetime.now(UTC),
-            "finished_at": datetime.now(UTC),
-            "request": {"template_name": "demo.glabels", "data": [], "copies": 1},
-        }
-
-        response = client_with_state.get(f"/labels/jobs/{job_id}/stream")
-
-        assert response.status_code == 200
-        content = response.text
-        assert "event: status" in content
-        assert '"status": "failed"' in content or '"status":"failed"' in content
+        job = response.json()
+        assert job["status"] == "done" and job["copy_order"] == "per_record"
+        assert job["labels_per_page"] == 3
+        assert job["expires_at"] is not None
+        assert client.get(job["download_url"]).content == original

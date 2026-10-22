@@ -1,187 +1,244 @@
-# app/main.py
-# labels-service main entrypoint
-# - Initialize logger
-# - Mount API routers
-# - Global middleware / exception handler
-# - Health check and API root info
-# - Lifespan context manages JobManager
-# - Global config provided by app/config.py (pydantic-settings)
+"""FastAPI lifespan owns exactly one local coordinator and persistent store."""
 
-from collections.abc import AsyncGenerator, Awaitable, Callable
+import asyncio
+import time
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from loguru import logger
-from prometheus_client import Gauge
-from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Histogram,
+    generate_latest,
+)
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
-from starlette.responses import Response
 
 from app import SERVICE_NAME, VERSION
-from app.api import print_jobs
-from app.config import settings
-from app.core.limiter import limiter
+from app.api.jobs import create_router
+from app.config import Settings, settings
+from app.core.body_limit import BodyLimitMiddleware
+from app.core.limiter import create_limiter
 from app.core.logger import setup_logger
 from app.services.job_manager import JobManager
 
-# Custom Prometheus gauges (business metrics)
-GAUGE_QUEUE_SIZE = Gauge("jobs_queue_size", "Number of jobs waiting in queue")
-GAUGE_ACTIVE_WORKERS = Gauge(
-    "jobs_active_workers", "Number of workers currently processing jobs"
-)
-GAUGE_TOTAL_SUBMITTED = Gauge(
-    "jobs_total_submitted", "Total jobs submitted since startup"
-)
 
+def create_app(
+    cfg: Settings | None = None, *, on_failure: Callable[[], None] | None = None
+) -> FastAPI:
+    cfg = cfg or settings
 
-# Lifespan: startup / shutdown management
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """FastAPI lifecycle: manage JobManager on startup/shutdown."""
-    app.state.job_manager = JobManager()
-    app.state.job_manager.start_workers()
-    app.state.start_time = datetime.now(UTC)
-    logger.info("JobManager started in lifespan")
-    try:
-        yield
-    finally:
-        await app.state.job_manager.stop_workers()
-        logger.info("JobManager stopped in lifespan")
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
+        setup_logger(cfg.LOG_LEVEL, cfg.LOG_FORMAT, cfg.LOG_DIR)
+        jobs = JobManager(cfg)
+        application.state.job_manager = jobs
+        application.state.start_time = datetime.now(UTC)
+        await jobs.start()
 
+        async def watch_failure() -> None:
+            await jobs.failure.wait()
+            if on_failure is not None:
+                on_failure()
 
-# Initialize logger and FastAPI app
-try:
-    setup_logger(settings.LOG_LEVEL, settings.LOG_FORMAT)
-except Exception as e:
-    import logging
+        watcher = (
+            asyncio.create_task(watch_failure()) if on_failure is not None else None
+        )
+        try:
+            yield
+        finally:
+            if watcher is not None:
+                watcher.cancel()
+                await asyncio.gather(watcher, return_exceptions=True)
+            try:
+                await jobs.stop()
+            finally:
+                logger.remove()
 
-    logging.basicConfig(level=logging.DEBUG)
-    logging.error(f"Logger setup failed, fallback to std logging: {e}")
-
-app = FastAPI(
-    title=SERVICE_NAME,
-    version=VERSION,
-    description="FastAPI microservice for batch label printing using gLabels CLI",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-    lifespan=lifespan,
-)
-
-
-@app.middleware("http")
-async def request_id_middleware(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
-    header_name = settings.REQUEST_ID_HEADER
-    request_id = request.headers.get(header_name) or uuid4().hex
-    request.state.request_id = request_id
-
-    with logger.contextualize(request_id=request_id):
-        response = await call_next(request)
-
-    response.headers[header_name] = request_id
-    return response
-
-
-def _split_csv(value: str) -> list[str]:
-    return [v.strip() for v in value.split(",") if v.strip()]
-
-
-# CORS Middleware (simple whitelist)
-origins = _split_csv(settings.CORS_ALLOW_ORIGINS)
-if origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    application = FastAPI(
+        title=SERVICE_NAME,
+        version=VERSION,
+        lifespan=lifespan,
+        description="Generate label PDFs with GTK or Qt gLabels and download completed jobs until they expire.",
+    )
+    application.state.settings = cfg
+    limiter = create_limiter()
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    application.add_middleware(
+        BodyLimitMiddleware,
+        max_bytes=cfg.MAX_REQUEST_BYTES,
+        max_admissions=cfg.MAX_PENDING_JOBS + cfg.MAX_INFLIGHT_JOBS,
+    )
+    if cfg.CORS_ALLOW_ORIGINS:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                x.strip() for x in cfg.CORS_ALLOW_ORIGINS.split(",") if x.strip()
+            ],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            allow_credentials=False,
+        )
+    registry = CollectorRegistry()
+    latency = Histogram(
+        "http_request_duration_seconds",
+        "Time to response headers",
+        ["method", "route", "status"],
+        registry=registry,
     )
 
-# Rate limiting
-app.state.limiter = limiter
-app.add_exception_handler(
-    RateLimitExceeded,
-    _rate_limit_exceeded_handler,  # type: ignore[arg-type]
-)
-app.add_middleware(SlowAPIMiddleware)
+    class JobMetrics:
+        def collect(self) -> Iterable[Metric]:
+            jobs = getattr(application.state, "job_manager", None)
+            if jobs is None:
+                return
+            for name, value in {
+                "submitted": jobs.submitted,
+                "completed": jobs.completed,
+                "failed": jobs.failed,
+                "worker_restarts": jobs.merger.restarts,
+                "cleanup_failures": jobs.cleanup_failures,
+            }.items():
+                yield CounterMetricFamily(
+                    "jobs_" + name, name.replace("_", " "), value=value
+                )
+            values = jobs.scheduler.snapshot() | {
+                "pending": len(jobs.pending),
+                "inflight": len(jobs.active),
+                "workspace_bytes": sum(jobs.pipeline.workspace_bytes.values()),
+            }
+            for name, value in values.items():
+                yield GaugeMetricFamily(
+                    "jobs_" + name, name.replace("_", " "), value=value
+                )
+            for name, stage_values in (
+                ("wait", jobs.scheduler.wait_seconds),
+                ("run", jobs.scheduler.run_seconds),
+            ):
+                family = CounterMetricFamily(
+                    "jobs_work_" + name + "_seconds",
+                    "Work lease " + name + " seconds",
+                    labels=["stage"],
+                )
+                for stage, value in stage_values.items():
+                    family.add_metric([stage], value)
+                yield family
 
-# Prometheus metrics
-if settings.ENABLE_METRICS:
+    registry.register(JobMetrics())
 
-    def _update_custom_gauges(info: Any) -> None:
-        """Callback: update business gauges on every request."""
-        jm = getattr(app.state, "job_manager", None)
-        if jm and hasattr(jm, "queue"):
-            GAUGE_QUEUE_SIZE.set(jm.queue.qsize())
-            GAUGE_ACTIVE_WORKERS.set(
-                sum(1 for j in jm.jobs.values() if j["status"] == "running")
+    @application.middleware("http")
+    async def request_context(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        identifier = (request.headers.get(cfg.REQUEST_ID_HEADER) or uuid4().hex)[:128]
+        request.state.request_id = identifier
+        started = time.monotonic()
+        with logger.contextualize(request_id=identifier):
+            response = await call_next(request)
+        response.headers[cfg.REQUEST_ID_HEADER] = identifier
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        if cfg.ENABLE_METRICS:
+            latency.labels(request.method, route, str(response.status_code)).observe(
+                time.monotonic() - started
             )
-            GAUGE_TOTAL_SUBMITTED.set(jm.jobs_total)
+        return response
 
-    instrumentator = Instrumentator()
-    instrumentator.instrument(app).expose(
-        app, endpoint="/metrics", include_in_schema=False
+    @application.exception_handler(Exception)
+    async def unhandled(request: Request, exc: Exception) -> JSONResponse:
+        logger.opt(exception=exc).error("Unhandled request failure")
+        return JSONResponse(
+            {"detail": "Internal Server Error"},
+            500,
+            headers={cfg.REQUEST_ID_HEADER: getattr(request.state, "request_id", "-")},
+        )
+
+    @application.get("/health", tags=["system"])
+    async def health() -> dict[str, str]:
+        """Check process liveness; this does not imply readiness to accept jobs."""
+        return {"status": "ok"}
+
+    @application.get(
+        "/ready",
+        tags=["system"],
+        responses={503: {"description": "Service cannot safely accept work"}},
     )
-    instrumentator.add(lambda info: _update_custom_gauges(info))
+    async def ready(request: Request) -> JSONResponse:
+        """Check that the coordinator is running and healthy. Submissions may still be rejected when queue or disk capacity is exhausted."""
+        jobs: JobManager = request.app.state.job_manager
+        return JSONResponse({"ready": jobs.ready}, 200 if jobs.ready else 503)
+
+    @application.get("/", tags=["system"])
+    async def root(request: Request) -> dict[str, Any]:
+        """Return service identity, start time and the API documentation link."""
+        return {
+            "service": SERVICE_NAME,
+            "version": VERSION,
+            "start_time": request.app.state.start_time.isoformat(),
+            "docs": "/docs",
+        }
+
+    if cfg.ENABLE_METRICS:
+
+        @application.get("/metrics", include_in_schema=False)
+        async def metrics() -> Response:
+            return Response(
+                generate_latest(registry), headers={"Content-Type": CONTENT_TYPE_LATEST}
+            )
+
+    application.include_router(create_router(limiter, cfg.RATE_LIMIT))
+    return application
 
 
-# Global Exception Handler
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    request_id = getattr(request.state, "request_id", "-")
-    logger.bind(request_id=request_id).exception(
-        f"Unhandled error on {request.url.path}: {exc}"
-    )
-    response = JSONResponse(
-        status_code=500, content={"detail": "Internal Server Error"}
-    )
-    response.headers[settings.REQUEST_ID_HEADER] = request_id
-    return response
+app = create_app()
 
 
-# Health Check (lightweight)
-@app.get("/health", tags=["system"], summary="Health check")
-async def health_check() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-# API root: service info + documentation links
-@app.get("/", tags=["system"], summary="API root information")
-async def api_root(request: Request) -> dict[str, Any]:
-    start_time: datetime = request.app.state.start_time
-    uptime_td: timedelta = datetime.now(UTC) - start_time
-    return {
-        "service": SERVICE_NAME,
-        "version": VERSION,
-        "uptime": str(uptime_td),
-        "start_time": start_time.isoformat() + "Z",
-        "docs": "/docs",
-        "redoc": "/redoc",
-        "openapi": "/openapi.json",
-    }
-
-
-# Mount API Routers
-app.include_router(print_jobs.router)  # no version prefix, mounted directly
-
-
-# Entry point: use `python -m app.main`
-if __name__ == "__main__":
+def run() -> None:
     import uvicorn
 
-    uvicorn.run(
-        "app.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.RELOAD,  # controlled via environment variable
-        access_log=True,
+    if settings.RELOAD:
+        uvicorn.run(
+            "app.main:app",
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=True,
+            limit_concurrency=128,
+            timeout_graceful_shutdown=5,
+        )
+        return
+
+    # The ASGI app cannot shut down its host. This launcher owns Uvicorn and
+    # requests its normal shutdown, including lifespan cleanup, on fatal failure.
+    application = create_app(
+        settings, on_failure=lambda: setattr(server, "should_exit", True)
     )
+    server = uvicorn.Server(
+        uvicorn.Config(
+            application,
+            host=settings.HOST,
+            port=settings.PORT,
+            workers=1,
+            limit_concurrency=128,
+            timeout_graceful_shutdown=5,
+        )
+    )
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        pass
+    if not server.started:
+        raise SystemExit(3)
+    if application.state.job_manager.failure.is_set():
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    run()

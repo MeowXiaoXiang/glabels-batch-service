@@ -1,81 +1,87 @@
-# Test Suite
+# Tests
 
-Unit tests for glabels-batch-service, focusing on core functionality and business logic.
+Use Python 3.14.9 (selected by `.python-version`) and uv 0.13.5. Update uv with
+its existing installation method; for a pip-managed copy, use
+`python -m pip install --upgrade uv==0.13.5`, then sync the committed lockfile:
 
-## Quick Start
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=app --cov-report=html
-
-# Specific test
-pytest tests/test_glabels_engine.py -v
+```sh
+uv sync --locked
+uv run --locked python -m pytest
+uv run --locked python -m ruff check app tests
+uv run --locked python -m ruff format --check app tests
+uv run --locked python -m mypy app
+uv run --locked python -m bandit -c pyproject.toml -r app
+uv pip check
 ```
 
-## Test Coverage: 76 Tests
+Tests cover shared weighted capacity/reserve/fairness, cancelled leases, real
+spawn-worker timeout/crash/reap/recovery, native renderer process cleanup,
+CSV/scalar/path contracts, SQLite ownership/constraints/expiry, restart
+reconciliation, bounded admission, download/cleanup ownership and API/SSE.
+The temporary paths and service settings are isolated from deployment data.
 
-| Test File | Tests | Purpose |
-|-----------|-------|---------|
-| `test_glabels_engine.py` | 7 | CLI wrapper and subprocess handling |
-| `test_job_manager.py` | 8 | Job lifecycle and worker management |
-| `test_template_service.py` | 7 | Template discovery and parsing |
-| `test_label_print.py` | 16 | CSV generation, batching, PDF merging |
-| `test_api_endpoints.py` | 22 | API validation, template endpoints, error handling |
-| `test_cpu_detect.py` | 12 | Container-aware CPU detection (cgroup v2/v1) |
-| `test_integration.py` | 4 | End-to-end workflows |
+`test_integration.py` calls real GTK/Qt binaries through the entire API pipeline:
+named CSV, CJK, multiple render batches, ordered pikepdf merge, page geometry,
+barcode decoding, download and restart under the same ID. It skips a renderer
+explicitly if unavailable on the host.
 
-## Key Test Areas
+Eight additional real-renderer cases compare complete jobs with page-aligned
+batches for both copy orders and copies=1/2, on a three-slot-per-page fixture.
+They check each page's label sequence, including partial final pages. Unit/API
+tests reject missing or oversized page declarations, fail publication on PDF
+page-count mismatch, and preserve completed downloads after restart.
 
-### GlabelsEngine (`test_glabels_engine.py`)
+Container tests supply those binaries:
 
-- Successful PDF generation via CLI
-- Error handling and timeout scenarios
-- Missing file detection
-- Output truncation for long errors
+```sh
+docker build --target test -t labels-test .
+docker run --rm --cpus 4 --memory 2g labels-test
+docker build --target qt-test -t labels-qt-test .
+docker run --rm --cpus 4 --memory 2g labels-qt-test
+```
 
-### JobManager (`test_job_manager.py`)
+The default production build excludes test dependencies. Test stage includes
+tests/fixtures and Poppler/zbar; qt-test additionally compiles the fixed upstream
+revision from Dockerfile. Fixtures are authored here, without parsing production
+templates. `fixtures/gtk.glabels` and `fixtures/qt.glabels` are renderer-specific
+test documents, not production templates. Both use the `.glabels` extension but
+have different content. Tests copy the selected fixture to `demo.glabels` in an
+isolated template directory; no demo template is installed by the runtime image.
+A separate [test_data](../test_data/README.md) directory holds older manual GTK
+examples; the automated tests do not use them.
+A Windows host without symlink permission skips the symlink test;
+Linux container tests exercise it.
 
-- Job submission and queuing
-- Async worker processing
-- Job completion and failure tracking
-- Automatic cleanup (retention policy)
+Pytest prints statement coverage and missing lines. To save a report, run
+`uv run --locked python -m pytest --cov-report=xml`; `coverage.xml` is generated
+and should not be committed. Branch coverage is not enabled. Worker behavior is
+tested in real spawned processes, whose executed lines may not appear in the
+parent's coverage report. A low percentage in `pdf_worker.py` alone does not
+mean merging went untested.
+CI requires at least 80% statement coverage for each full suite. Targeted test
+runs can use `--no-cov`; do not use their partial totals as full-suite coverage.
 
-### TemplateService (`test_template_service.py`)
+CI audits the locked Linux runtime dependencies and the full dependency export
+(including dev tools) on Linux and Windows. A weekly scheduled audit checks the
+full export on both platforms without renderer builds; scheduled workflows run
+from the default branch. Manual workflow dispatch runs the complete CI pipeline.
+CI also submits a real HTTP
+job, downloads its PDF and checks graceful stop in the production image.
+`runtime_smoke.py` uses only the standard library against a running service;
+CI supplies `fixtures/gtk.glabels` as its demo template. See the exact commands in
+[ci.yml](../.github/workflows/ci.yml). These checks do not establish a production
+capacity guarantee or replace acceptance with actual templates and printers.
 
-- Template discovery in directories
-- Field extraction from `.glabels` files
-- Format detection (CSV/TSV)
-- Invalid template handling
+Quality regression tests also verify app-specific deployment limits and rate counters,
+log severity floors and sink failures, OpenAPI media/error contracts, and execution
+failures that must retain resource accounting.
 
-### LabelPrintService (`test_label_print.py`)
+Regression tests exercise repeated cold spawn and external worker kills,
+continuous mixed scheduler producers with cancellation, transient/persistent
+SQLite write failures, and fatal shutdown through a separate server process.
+`fixtures/failing_server.py` installs fault injection only in that subprocess;
+it is never part of the runtime image. Actual OOM recovery is not exercised by CI.
 
-- JSON to CSV conversion
-- Field ordering consistency
-- Batch splitting (respects `MAX_LABELS_PER_BATCH`)
-- PDF merging for multi-batch jobs
-- Temporary file cleanup
-
-### API Endpoints (`test_api_endpoints.py`)
-
-- Request validation (template name, data format)
-- Template list returns TemplateSummary format (no detail fields)
-- Template detail returns full TemplateInfo with fields
-- Template limit parameter behavior
-- Error responses (404, 409, 410)
-- Schema validation
-
-### Integration Tests (`test_integration.py`)
-
-- Full workflow: template → job → PDF
-- Component interaction
-- Error propagation
-
-## Testing Philosophy
-
-- **Fast execution**: Complete suite runs in <1 second
-- **Mock external dependencies**: Filesystem, subprocess, network
-- **Test business logic**: Focus on critical functionality, not framework features
-- **Easy maintenance**: Clear test names and focused assertions
+TestClient uses the locked `httpx2` development dependency. Keep that backend
+consistent across Windows and renderer-container tests; plain `httpx` is not
+needed by this project.

@@ -1,28 +1,15 @@
-# app/core/logger.py
-# Logger initialization: integrates console / system / error log
-# - Supports LOG_LEVEL from .env
-# - Automatically creates logs/ directory to avoid FileNotFoundError
-# - Fallback: if log files cannot be created, at least ensure console output
+"""Console and rotating file logging, with console fallback on file errors."""
 
 import sys
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
-from app.config import settings
 
-
-def setup_logger(level: str | None = None, log_format: str | None = None) -> Any:
-    """
-    Initialize global logger.
-    :param level: log level (DEBUG / INFO / WARNING / ERROR)
-    """
+def setup_logger(level: str, log_format: str, directory: str) -> None:
+    log_level = logger.level(level.upper()).no
+    use_json = log_format.lower() == "json"
     logger.remove()
-
-    log_level = (level or settings.LOG_LEVEL).upper()
-    log_format_value = (log_format or settings.LOG_FORMAT).lower()
-    use_json = log_format_value == "json"
 
     text_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> "
@@ -34,7 +21,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
 
     logger.configure(extra={"request_id": "-"})
 
-    def _add_console(level: str) -> None:
+    def _add_console(level: int) -> None:
         if use_json:
             logger.add(sys.stdout, level=level, colorize=False, serialize=True)
         else:
@@ -46,7 +33,7 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
                 serialize=False,
             )
 
-    def _add_file(path: Path, level: str) -> None:
+    def _add_file(path: Path, level: int) -> None:
         if use_json:
             logger.add(
                 path,
@@ -68,30 +55,25 @@ def setup_logger(level: str | None = None, log_format: str | None = None) -> Any
                 serialize=False,
             )
 
-    # Ensure log directory exists (configurable via settings.LOG_DIR)
-    log_dir = Path(settings.LOG_DIR or "logs")
+    log_dir = Path(directory)
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        # If directory creation fails, fallback to console log only
-        _add_console("DEBUG")
+        _add_console(log_level)
         logger.error(f"Failed to create log directory: {e}")
-        return logger
+        return
 
-    # Console: colored output (text) or JSON (serialize)
     _add_console(log_level)
 
-    # System log: INFO and above
     try:
-        _add_file(log_dir / "system.log", "INFO")
+        _add_file(log_dir / "system.log", max(log_level, logger.level("INFO").no))
     except Exception as e:
         logger.error(f"Failed to create system.log: {e}")
 
-    # Error log: ERROR and above
     try:
-        _add_file(log_dir / "error.log", "ERROR")
+        _add_file(log_dir / "error.log", max(log_level, logger.level("ERROR").no))
     except Exception as e:
         logger.error(f"Failed to create error.log: {e}")
 
     logger.info(f"Logger initialized with level={log_level}")
-    return logger
+    return

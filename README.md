@@ -1,476 +1,340 @@
 # gLabels Batch Service
 
-![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
-![Framework](https://img.shields.io/badge/Framework-FastAPI-009688?logo=fastapi&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
-![Linux](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
-![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest)
-![MIT License](https://img.shields.io/badge/License-MIT-green.svg)
+An asynchronous label PDF service for GTK gLabels and Qt gLabels. One submission
+produces one final PDF; internal CSVs and batch PDFs are temporary.
 
-A **FastAPI** microservice for batch label printing using **gLabels**. Converts **JSON → CSV → gLabels Template → PDF** with async job processing, parallel execution, and timeout handling.
+[繁體中文](README_tw.md)
 
-**[中文版本 README](README_tw.md)**
+Contribution and commit message guidelines: [CONTRIBUTING.md](CONTRIBUTING.md).
 
----
+## Run
 
-## Features
+The default Docker runtime includes Python, GTK, fonts, and the Python
+dependencies. The host only needs Docker with Compose:
 
-- **Batch Processing**: Convert JSON data to PDF labels in batches
-- **Async Job Queue**: Background task processing with worker pool
-- **Real-time Status**: Server-Sent Events (SSE) for live progress updates
-- **Auto-Batching**: Automatically splits large jobs and merges PDFs
-- **Template Management**: Auto-discovery and parsing of `.glabels` templates
-- **Production Ready**: Docker support, health checks, configurable limits
-
----
-
-## Quick Start
-
-```bash
-# 1. Copy environment template
+```sh
 cp .env.example .env
-
-# 2. Start service (docker compose reads .env)
-docker compose up -d
-
-# 3. Open API docs
-http://localhost:8000/docs
+# Put your own templates in templates/, configured for named, header-row CSV.
+docker compose up --build -d
+curl http://localhost:8000/ready
 ```
 
----
+Keep both `state/` and `output/` persistent. Compose mounts them automatically.
+Run one service instance and one Uvicorn worker per store. A second owner of the
+same SQLite store is rejected. SQLite is a local result index, not a distributed
+queue. The default Compose limits are 4 CPUs and 2 GB memory.
 
-## Installation
+To run without Docker, use Python 3.14.9 and install a working gLabels
+batch executable, its native libraries, and fonts:
 
-### Docker (Recommended)
-
-Notes:
-
-- Docker deployment uses `compose.yml`.
-- If `.env` is missing, copy from `.env.example` first.
-- For startup commands, see **Quick Start** above.
-
-### Native Installation (Linux/WSL only)
-
-```bash
-# Install gLabels
-sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
-
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Run
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```sh
+uv sync --locked --no-dev
+uv run --locked --no-dev python -m app.main
 ```
 
-> **Windows users**: gLabels requires Linux. Use Docker or WSL2.
+Local commands use uv 0.13.5. Update uv through the method that installed it;
+for a pip-managed copy, use `python -m pip install --upgrade uv==0.13.5`.
+Docker includes the installation step and
+does not require uv on the host. Python 3.14 is the tested runtime; uv uses a
+project-local `.venv` without changing your system Python packages.
+The committed `.python-version` selects the tested Python patch for local uv
+commands; Docker and CI use the same patch. Updating the system interpreter does
+not automatically replace an existing virtual environment.
 
----
+Interactive documentation: `/docs`. `/health` is liveness; `/ready` indicates
+whether the coordinator is running and healthy. Readiness does not check queue
+space or disk headroom; individual submissions can still be rejected.
+Oversized bodies return 413; invalid inputs return 422; a full queue or
+unavailable coordinator returns 503 with
+`Retry-After`. The request limit applies before JSON parsing, including chunked
+bodies.
 
-## Production Deployment
+Body admission concurrency is bounded before JSON parsing by the pending plus
+inflight capacity. The Docker command and `python -m app.main` also set Uvicorn's
+concurrency limit to 128. Both use the project launcher and honor `HOST`, `PORT`
+and `RELOAD`. Keep `RELOAD=false` in production. The default container port is
+8000; changing it also requires updating port mappings and health checks. Change
+only Compose's port mapping to use a different host port.
 
-This project is internal-first. For production, use one of these two flows:
+The API has no built-in authentication. Deploy it on a trusted network or behind
+a gateway that controls access.
 
-1. Define environment variables directly in Linux service (`Environment=` / `EnvironmentFile=`).
-2. Import `.env` before starting the service if you prefer fewer typed variables.
+## GTK / Qt
 
-Then start the service with Docker Compose:
+Each service instance uses **one renderer**, selected globally at deployment.
+API requests do not select GTK/Qt, and a job never mixes renderers.
 
-```bash
-docker compose up -d
-docker compose ps
-docker compose logs -f
+Current Docker targets:
+
+| Build target | Installed renderers | Default command |
+|---|---|---|
+| `production` (default, including Compose) | GTK | API server |
+| `test` | GTK | pytest |
+| `qt-test` | GTK and Qt | pytest |
+
+The two renderers in `qt-test` are for compatibility testing. A dedicated Qt
+production target is not provided yet. The default GTK image cannot run Qt just
+by changing an environment variable; deploy the matching runtime first.
+
+Set `GLABELS_EXECUTABLE` to an executable name or path and restart:
+
+```dotenv
+GLABELS_EXECUTABLE=glabels-3-batch
+# GLABELS_EXECUTABLE=/opt/glabels/bin/glabels-batch-qt
+# GLABELS_EXECUTABLE=/opt/service/bin/glabels-wrapper
 ```
 
-### Using with nginx (Reverse Proxy)
+The same adapter passes `-o`, `-i`, `--copies=1`, and the template path as separate
+arguments. Shell command strings are not supported. A compatible wrapper must
+forward arguments, exit codes and signals, and own its children. Install the Qt
+runtime, fonts and platform support first; changing a path does not install them.
+For a headless Qt deployment, provide a supported platform configuration such as
+`QT_QPA_PLATFORM=offscreen`, or a suitable wrapper. GTK remains the default image;
+the optional `qt-test` build target compiles a fixed Qt source revision for tests.
 
-If deploying behind nginx, configure the following for proper SSE support:
+Templates must be compatible with the selected renderer. The service does not
+parse, convert, or infer template fields. Catalog endpoints return names only.
+Ensure your template uses the service's named CSV contract. See
+[templates/README.md](templates/README.md).
 
-```nginx
-upstream backend {
-    server 127.0.0.1:8000;
-    keepalive 32;
-}
+The service handles copies and their order; the renderer always receives
+copies=1. See [Using copies and copy_order](#using-copies-and-copy_order) below.
 
-server {
-    listen 80;
-    server_name example.com;
+When the effective label count exceeds `MAX_LABELS_PER_BATCH`, the request must
+declare `labels_per_page` for its template. Intermediate batches contain whole
+pages, rounded down within that limit; the final batch may be partial. Missing
+declarations, a page larger than the batch limit, and excessive batch/page counts
+return HTTP 422 before creating a job. A single render does not require this
+declaration. A declared page count is checked against each batch PDF by the
+isolated merge worker; a mismatch fails the job without publishing a final.
 
-    # SSE endpoints (real-time streaming)
-    location /labels/jobs/ {
-        proxy_pass http://backend;
-        proxy_http_version 1.1;
-        
-        # Disable buffering for Server-Sent Events
-        proxy_buffering off;
-        proxy_cache off;
-        
-        # Keep connection open for long-lived requests
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        
-        # Required headers
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "";
-        
-        # CORS (optional, if needed)
-        add_header Access-Control-Allow-Origin * always;
-    }
+The template provider must verify the declared page capacity, the first-slot
+start, and continuous filling without native grouping. The service cannot infer
+these from an opaque template or prove slot geometry from PDF page counts alone.
+Supply business serial numbers and any copy/page-specific values as data. Native
+template copy variables now see copies=1, and native page/sequence variables reset
+per invocation. Templates relying on those variables need adaptation and layout
+acceptance with the chosen renderer; arbitrary templates are not automatically
+equivalent to one monolithic render.
 
-    # All other endpoints (normal buffering)
-    location / {
-        proxy_pass http://backend;
-        proxy_http_version 1.1;
-        
-        proxy_buffering on;
-        proxy_read_timeout 60s;
-        
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "";
-    }
-}
-```
+## API
 
-**Key Configuration Points**:
+The examples assume you have deployed a compatible template named
+`demo.glabels` with `ITEM` and `CODE` fields. The runtime does not install a demo
+template. The GTK examples in [test_data](test_data/README.md) are available for
+manual testing; automated tests use separate renderer-specific fixtures.
 
-- `proxy_buffering off` — Required for SSE to work properly
-- `proxy_read_timeout 3600s` — Allow up to 1 hour for long-running jobs
-- `proxy_http_version 1.1` — Essential for connection reuse
-- `Connection ""` — Prevents nginx from adding `Connection: close`
-
-> **Tip**: If using SSL/TLS, ensure `proxy_set_header X-Forwarded-Proto $scheme;` is set so the app knows it's behind HTTPS.
-
----
-
-## Configuration
-
-### Environment Variables
-
-Copy `.env.example` to `.env` and adjust:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENVIRONMENT` | Runtime environment (development/production) | `production` |
-| `HOST` / `PORT` | Server address and port | `0.0.0.0` / `8000` |
-| `RELOAD` | Auto-reload on code changes (dev only) | `false` |
-| `MAX_PARALLEL` | Parallel workers (0=auto, cgroup-aware) | `0` |
-| `MAX_LABELS_PER_BATCH` | Labels per batch before split | `300` |
-| `MAX_LABELS_PER_JOB` | Max labels per request | `2000` |
-| `GLABELS_TIMEOUT` | Timeout per batch in seconds | `600` |
-| `RETENTION_HOURS` | Job retention time | `24` |
-| `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
-| `LOG_FORMAT` | Logging format (text/json) | `text` |
-| `LOG_DIR` | Log file directory | `logs` |
-| `REQUEST_ID_HEADER` | Request ID header name | `X-Request-ID` |
-| `RATE_LIMIT` | Rate limit for `/labels/print` | `60/minute` |
-| `ENABLE_METRICS` | Enable Prometheus metrics endpoint | `true` |
-| `SHUTDOWN_TIMEOUT` | Graceful shutdown timeout (seconds) | `30` |
-| `KEEP_CSV` | Retain intermediate CSV files | `false` |
-| `MAX_REQUEST_BYTES` | Request body size limit | `5000000` |
-| `MAX_FIELDS_PER_LABEL` | Max fields per label record | `50` |
-| `MAX_FIELD_LENGTH` | Max length per field value | `2048` |
-| `CORS_ALLOW_ORIGINS` | Comma-separated allowed origins (empty=disabled) | `` |
-
-### Configuration Priority
-
-1. System environment variables
-2. `.env` file
-3. Default values in `app/config.py`
-
-> **Security**: Never commit `.env` with real values to version control.
-
----
-
-## API Examples
-
-### Submit Print Job
-
-```bash
+```sh
 curl -X POST http://localhost:8000/labels/print \
-  -H "Content-Type: application/json" \
-  -d '{
-    "template_name": "demo.glabels",
-    "data": [
-      {"CODE": "A001", "ITEM": "Product A"},
-      {"CODE": "A002", "ITEM": "Product B"}
-    ],
-    "copies": 1
-  }'
+  -H 'Content-Type: application/json' \
+  -d '{"template_name":"demo.glabels","data":[{"ITEM":"A001","CODE":"123"}],"copies":1}'
 ```
 
-**Response:**
+Successful admission returns HTTP 202:
 
 ```json
-{"job_id": "abc123..."}
+{"job_id":"123e4567-e89b-42d3-a456-426614174000","status":"pending"}
 ```
 
-### Check Job Status
+### Using copies and copy_order
 
-```bash
-curl http://localhost:8000/labels/jobs/{job_id}
-```
+`copies` determines how many labels each record produces; `copy_order` determines
+their sequence. Both are JSON fields on each `POST /labels/print`, with no extra
+Qt flags or environment variables required.
+The service writes the requested sequence directly into each batch CSV without
+building a second list containing all copies in memory.
 
-**Response Example:**
+For example, assume your deployed `demo.glabels` uses the `ITEM` field and has
+four label positions per page:
 
 ```json
 {
-  "job_id": "abc123...",
-  "status": "done",
-  "template": "demo.glabels",
-  "filename": "demo_20260209_103000.pdf",
-  "error": null,
-  "created_at": "2026-02-09T10:30:00",
-  "started_at": "2026-02-09T10:30:01",
-  "finished_at": "2026-02-09T10:30:05"
+  "template_name": "demo.glabels",
+  "data": [{"ITEM": "A"}, {"ITEM": "B"}, {"ITEM": "C"}],
+  "copies": 2,
+  "copy_order": "sets",
+  "labels_per_page": 4
 }
 ```
 
-### Stream Status (SSE)
+| copy_order | Meaning | Label sequence | Pages in this example |
+|---|---|---|---|
+| `sets` (default) | Repeat the complete input in order | `ABCABC` | `ABCA` then `BC` |
+| `per_record` | Repeat each record consecutively | `AABBCC` | `AABB` then `CC` |
 
-Real-time status updates using Server-Sent Events:
+Change only `copy_order` to `"per_record"` to select the second ordering. Omitting
+it selects `sets`; omitting `copies` selects one copy, where both orders are the
+same. Sets do not force a page break between copies. Both examples produce six
+labels in one two-page PDF, not two PDF files.
 
-```bash
-curl -N http://localhost:8000/labels/jobs/{job_id}/stream
-```
+Use your actual template's capacity for `labels_per_page`, not the example's
+four. This declaration aligns service batches; it does not change the template's
+layout. It is required when the job needs batching.
 
-**JavaScript Example:**
+| Endpoint | Purpose |
+|---|---|
+| `POST /labels/print` | Submit a job |
+| `GET /labels/jobs/{job_id}` | Status, progress, expiry, error, download URL |
+| `GET /labels/jobs/{job_id}/stream` | SSE using the same status schema |
+| `GET /labels/jobs/{job_id}/download` | Download a completed PDF; `?preview=true` displays inline |
+| `GET /labels/jobs?limit=10` | Recent, unexpired jobs; limit 1–100 |
+| `GET /labels/templates` | Available template names |
+| `GET /labels/templates/{name}` | Check a template name exists |
+| `GET /metrics` | Prometheus metrics, when enabled |
 
-```javascript
-const es = new EventSource('/labels/jobs/{job_id}/stream');
-es.addEventListener('status', (e) => {
-    const job = JSON.parse(e.data);
-    console.log(job.status);  // pending → running → done
-    if (job.status === 'done' || job.status === 'failed') {
-        es.close();
-    }
-});
-```
+Status is `pending → rendering → merging → done`, or `failed`. Single-batch jobs
+can skip `merging`, while still validating their PDF in the isolated worker.
+Progress reports rendered batches; completing all render batches does not mean
+the final PDF is ready. Internal batches have indexes, not public child job IDs.
+Disconnecting a polling/SSE client does not cancel an accepted job.
 
-### Download PDF
+SSE sends `status` events containing the job JSON, or keepalive comments while
+the status is unchanged. It closes when the job reaches `done` or `failed`, the
+service stops accepting work, or the client disconnects. A job missing before
+the stream starts returns HTTP 404; expiry during a stream sends an `error`
+event with `{"code":"not_found"}` and closes the stream.
 
-```bash
-# Download file
-curl -O http://localhost:8000/labels/jobs/{job_id}/download
+Records contain scalar values only. CSV columns follow first appearance across
+the whole request, remain consistent across batches, and always include a header.
+Missing/null values become empty cells, booleans `true`/`false`; quoting and
+newlines use standard UTF-8 CSV. Nested values, NUL and nonfinite numbers are
+rejected. The template provider owns field mapping and layout correctness.
 
-# Preview in browser
-curl http://localhost:8000/labels/jobs/{job_id}/download?preview=true
-```
+Request options: `copies` defaults to 1; `copy_order` is `sets` or `per_record`;
+`labels_per_page` is a positive integer or null. Status/SSE retain these options
+after restart.
 
-### List Templates
+## Results and restart
 
-```bash
-curl http://localhost:8000/labels/templates
-```
+SQLite stores minimal metadata; final PDFs remain in `output/<job_id>.pdf`.
+Schema v1 includes copy ordering and page declarations. Unsupported schema
+versions are rejected at startup.
+The main process publishes a validated file by rename, then marks the job done.
+Only final PDFs are downloadable. CSVs, batch PDFs and staging files are normally
+removed when processing ends. Files left after a forced stop are removed at job
+expiry if they still exist; they are not inputs for automatic resume.
 
-**Response Example:**
+Completed results remain available under their original job ID after a normal
+service/container restart, until their recorded expiry (24 hours by default).
+Restarting, downloading again or changing retention does not extend that expiry.
+Startup reconciles a published final whose completion transaction was interrupted.
+Other unfinished jobs become `failed` with `interrupted`; no automatic resume,
+retry, request deduplication or durable input-payload storage is provided.
 
-```json
-[
-  {
-    "name": "demo.glabels",
-    "field_count": 2,
-    "has_headers": true
-  }
-]
-```
+Expired/unknown jobs return 404. An unexpired completed job with a missing final
+returns 410; unfinished downloads return 409. Cleanup coordinates open downloads,
+deletes the artifact before its index row, and retries failed deletions. Failed
+job records also expire. Only files belonging to indexed jobs are cleaned; legacy
+PDFs from older releases are not automatically imported or deleted.
 
----
+### Inspecting or backing up SQLite
 
-## Templates & Data Format
+Use the status/list endpoints for routine inspection. If SQL is needed while
+Docker is running, use a short-lived read-only connection inside the service
+container and close it promptly. Avoid opening the active bind-mounted database
+with a Windows-side SQLite client while the Linux container is using it. Keep
+the store on storage that supports SQLite locking and shared memory; WAL is not
+supported over a network filesystem. See [SQLite's WAL documentation](https://sqlite.org/wal.html).
 
-### Template Files
+For a backup of both metadata and PDFs, stop the service, confirm it has exited,
+and copy `state/` and `output/` (or your configured directories) together before
+restarting. Copy the whole state directory, including any remaining WAL files,
+rather than just `jobs.sqlite3`.
+SQLite's [backup API](https://sqlite.org/backup.html) can create a consistent live
+database copy, but it does not snapshot the separate PDF directory.
 
-- Place `.glabels` template files in `templates/` directory
-- Supported template merge type: CSV/Comma only
-- System automatically discovers and parses field definitions
-- Use `/labels/templates` API to browse available templates (summary); use `/labels/templates/{name}` for detailed field information
+## Capacity and lifecycle
 
-### Data Format Requirements
+Render and merge share a weighted budget calculated at startup. The smallest
+detected CPU capacity is rounded down, then `API_CPU_RESERVE` (default 1) is
+subtracted, with a minimum budget of one token. This also lets a service with a
+fractional CPU quota make progress. `WORK_TOKENS=0` uses
+automatic sizing, while a positive value further caps it. Render costs 1; merge
+defaults to 2 and clamps to the available budget. Weights estimate admission
+cost, not CPU affinity or hard OS resource isolation.
 
-- JSON field names must match template variables exactly (case-sensitive)
-- `data` array must not be empty
-- Maximum `MAX_LABELS_PER_JOB` labels per request (default 2000)
-- Maximum `MAX_FIELDS_PER_LABEL` fields per label record (default 50)
-- Maximum `MAX_FIELD_LENGTH` characters per field value (default 2048)
+Merge finishing reserve prevents new renders taking all capacity. Render batches
+rotate among jobs; low-capacity configurations allow a render between consecutive
+merges. One warm spawn worker handles merge/validation, with pending work held by
+the shared scheduler. Crash/timeout recovery confirms actual process exit before
+releasing the lease or deleting its workspace. An unconfirmed exit makes the
+coordinator unavailable for a controlled restart.
 
-### File Output
+An unrecoverable coordinator/store failure stops admission and fails queued jobs
+with `execution_unavailable`. Running jobs retain the normal shutdown deadline.
+If SQLite cannot record a failure, its unfinished rows remain for startup
+reconciliation. The default launcher (`python -m app.main`, with reload disabled)
+requests Uvicorn shutdown and exits with code 1 so Compose's restart policy can
+restart it. Completed results keep their original expiry. Direct ASGI hosting
+must arrange its own restart when readiness fails; the app cannot stop a server
+it does not own. Development reload mode also requires restarting after a fatal
+failure or changing a source file.
 
-- Generated PDFs saved to `output/` directory
-- Filename format: `{template_name}_{timestamp}.pdf`
-- Temporary CSV files in `temp/` (retained if `KEEP_CSV=true`)
-- Jobs retained for `RETENTION_HOURS` hours after completion (default 24)
+Configuration bounds queued/inflight jobs, request size, records×copies, batches,
+PDF size/pages, workspace size and disk headroom. Workspace/disk checks run at
+operation boundaries and periodically during rendering; container limits remain
+necessary for hard resource bounds. Deploy under a supervisor that also owns
+children (the provided single-process container does this). Linux renderer trees
+use dedicated process groups; Windows uses native child-tree termination.
 
----
+`SIGTERM` drains accepted work within the configured budget, then stops and reaps
+remaining children. Compose allows 60 seconds, including Uvicorn's 5-second HTTP
+grace period and the application's drain/reap budgets. Persistence covers normal
+restart; power-loss durability of the filesystem/volume requires separate testing.
 
-## Observability
+## Logging and API documentation
 
-### Request ID
+`LOG_LEVEL` is the minimum severity for application logs. Console uses that level;
+`system.log` uses the stricter of it and INFO, and `error.log` the stricter of it
+and ERROR. DEBUG therefore appears only on console; ERROR suppresses INFO in
+all application log outputs. `LOG_FORMAT=text` or `json` applies to console and
+files. If a log directory or file cannot be opened, console logging retains the
+configured level and format. Files rotate at 5 MB and retain 10 rotated files per sink.
+Uvicorn's own server logs use its separate logging configuration.
 
-Every response includes an `X-Request-ID` header. Pass your own in the request or let the server generate one. Use it to trace a request through logs.
-
-### Rate Limiting
-
-`/labels/print` is rate-limited (default `60/minute`). Exceeding the limit returns `429 Too Many Requests`. Adjust via `RATE_LIMIT` env var.
-
-### Prometheus Metrics
-
-When `ENABLE_METRICS=true` (default), a `/metrics` endpoint exposes request counts, latency histograms, and status codes in Prometheus format.
-
-```bash
-curl http://localhost:8000/metrics
-```
-
-### Graceful Shutdown
-
-On shutdown the service waits up to `SHUTDOWN_TIMEOUT` seconds (default 30) for running jobs to finish before stopping workers.
-
----
-
-## Architecture
-
-### Execution Flow
-
-```text
-Client Request → FastAPI → JobManager → LabelPrintService → GlabelsEngine → PDF Output
-                               ↓              ↓                  ↓
-                           Queue Mgmt     JSON→CSV           CLI Wrapper
-                           Worker Pool    Batch Split        subprocess
-                                          PDF Merge
-```
-
-### Project Structure
-
-```text
-app/
-├── api/
-│   └── print_jobs.py          # API routes and endpoints
-├── core/
-│   ├── limiter.py             # Rate limiter instance (SlowAPI)
-│   ├── logger.py              # Logging configuration
-├── parsers/
-│   ├── base_parser.py         # Base parser class
-│   └── csv_parser.py          # CSV format parser
-├── services/
-│   ├── job_manager.py         # Job queue and worker management
-│   ├── label_print.py         # JSON→CSV, batch split, PDF merge
-│   └── template_service.py    # Template discovery and parsing
-├── utils/
-│   ├── cpu_detect.py          # Container-aware CPU detection (cgroup)
-│   └── glabels_engine.py      # glabels-3-batch CLI wrapper
-├── config.py                  # Environment configuration (pydantic-settings)
-├── schema.py                  # Pydantic data models
-└── main.py                    # FastAPI application entry point
-```
-
-### Key Components
-
-- **JobManager**: Manages job queue, worker pool, status tracking, and cleanup
-- **LabelPrintService**: Handles JSON to CSV conversion, batch splitting, PDF merging
-- **GlabelsEngine**: Async wrapper for `glabels-3-batch` CLI with timeout handling
-- **TemplateService**: Auto-discovers `templates/` directory and parses `.glabels` files
-
----
-
-## Testing
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=app --cov-report=html
-
-# View coverage report
-open htmlcov/index.html
-
-# Specific test file
-pytest tests/test_glabels_engine.py -v
-```
-
----
-
-## Troubleshooting
-
-**Common Issues:**
-
-| Issue | Solution |
-|-------|----------|
-| `404 Job not found` | Job expired (default 24h retention) or invalid job_id |
-| `409 Conflict` | Job still running, wait for completion |
-| `410 Gone` | Job expired and cleaned up |
-| `glabels-3-batch not found` | Use Docker (gLabels auto-installed) |
-| Template not found | Verify `.glabels` file exists in `templates/` directory |
-| Timeout errors | `GLABELS_TIMEOUT` is **per-batch** timeout (default 600s). 1000 labels = 4 batches = up to 2400s total |
-| Windows compatibility | Use Docker Desktop or WSL2 (gLabels requires Linux) |
-
-**Frequently Asked Questions:**
-
-**Q: How to handle large label batches?**  
-A: System automatically splits batches (default 300 labels/batch) and merges PDFs. Adjust `MAX_LABELS_PER_BATCH` as needed.
-
-**Q: How to adjust parallel processing?**  
-A: Set `MAX_PARALLEL` - `0` for auto (CPU-1), or specify explicit number like `4`. Production: match CPU cores.
-
-**Q: Job stuck in pending status?**  
-A: Check `docker compose logs -f` to verify workers are running. Verify `MAX_PARALLEL` setting.
-
-**Debugging:**
-
-```bash
-# View container logs
-docker compose logs -f
-
-# Check container status
-docker compose ps
-
-# Access container shell
-docker compose exec glabels-batch-service sh
-
-# Check health status
-curl http://localhost:8000/health
-
-# View runtime info
-curl http://localhost:8000/
-```
-
----
+Open `/docs` for request examples, field semantics, response formats and error
+codes. Deployment-specific limits are enforced using the active application's
+configuration before accepting a job; schema types and basic data validity are
+checked separately. Submission rate limits are per client address and per
+service instance; they are not shared across deployments.
 
 ## Development
 
-### Local Setup
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# Install gLabels (Linux/WSL)
-sudo apt-get install glabels glabels-data fonts-dejavu fonts-noto-cjk
-
-# Run service (with hot reload)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Or press F5 in VS Code for debugging (uses .env)
+```sh
+uv sync --locked
+uv run --locked python -m pytest
+uv run --locked python -m ruff check app tests
+uv run --locked python -m ruff format --check app tests
+uv run --locked python -m mypy app
+uv run --locked python -m bandit -c pyproject.toml -r app
+uv pip check
+docker build --target test -t labels-test .
+docker run --rm --cpus 4 --memory 2g labels-test
+docker build --target qt-test -t labels-qt-test .
+docker run --rm --cpus 4 --memory 2g labels-qt-test
 ```
 
-### Code Quality
+Real renderer tests skip explicitly when that executable is unavailable on the
+host; GTK/Qt container stages provide the corresponding binaries. See
+[tests/README.md](tests/README.md). The runtime image does not include research,
+tests, Qt build tools or qpdf CLI. The service does not parse template contents.
 
-```bash
-# Run linter
-ruff check app/ tests/
+`pyproject.toml` declares runtime dependencies, the `dev` dependency group, and
+tool settings. Commit the generated `uv.lock` with dependency changes; it locks
+transitive versions and artifact hashes for Windows and Linux. CI and Docker use
+`--locked` and fail when the declarations and lockfile disagree. Production
+installs exclude the dev group and use the project's Uvicorn launcher; uv is only mounted
+during installation. The Python and uv build images are pinned by digest.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dependency updates. gLabels, Qt/GTK,
+fonts, and other OS packages are managed by the deployment, separately from uv;
+the default Docker image installs the GTK stack.
 
-# Format code
-ruff format app/ tests/
+CI audits both runtime and development dependencies. A lightweight weekly audit
+runs on Ubuntu and Windows after the workflow reaches the default branch; it
+does not rebuild renderer images. Normal pushes/PRs and manual runs retain the
+full checks. Native OS libraries and certificate stores bundled inside tools
+still need separate upstream review.
 
-# Type checking
-mypy app/
-```
+Version 3 changes the API and environment configuration directly: `running`,
+template introspection fields, `MAX_PARALLEL` and `KEEP_CSV` are removed. Replace
+old deployment settings using `.env.example`; no compatibility layer is provided.

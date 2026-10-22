@@ -1,117 +1,82 @@
-# app/config.py
-# Global configuration file: loads environment variables and .env
-# Using pydantic-settings to automatically map env vars to Python attributes
+"""Deployment configuration; renderer paths are never supplied by API clients."""
 
 from pathlib import Path
-from typing import Any
+from typing import Self
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # -------------------------
-    # Environment configuration
-    # -------------------------
     ENVIRONMENT: str = "production"
-    # Environment mode: development / production
-    # Controls safety validations and default behaviors
-
-    # -------------------------
-    # Server configuration
-    # -------------------------
-    HOST: str = "0.0.0.0"  # nosec: B104
-    # IP address to bind (0.0.0.0 = all interfaces)
-
-    PORT: int = 8000
-    # Port number to listen on
-
+    HOST: str = "0.0.0.0"  # nosec B104
+    PORT: int = Field(8000, ge=1, le=65535)
     RELOAD: bool = False
-    # Enable auto-reload (useful in development, disable in production)
-
-    # -------------------------
-    # Global control options
-    # -------------------------
-    KEEP_CSV: bool = False
-    # True  = keep temp CSV files (for debugging)
-    # False = delete temp CSV after job completion (recommended in production)
-
-    MAX_PARALLEL: int = 0
-    #  >0   = explicit number of concurrent jobs (e.g. 4)
-    #  0    = auto (cgroup-aware: reads container CPU quota, falls back to os.cpu_count())
-
-    GLABELS_TIMEOUT: int = 600
-    # Max timeout per job in seconds (default 600 = 10 minutes)
-
-    MAX_LABELS_PER_BATCH: int = 300
-    # Maximum labels per batch before auto-splitting and PDF merging
-    # Set to 0 to disable (not recommended for large datasets)
-    # Recommended: 200-300 for ARM/embedded, 500-800 for x86 servers
-    MAX_LABELS_PER_JOB: int = 2000
-    # Maximum labels allowed per request job
-    # Prevents oversized requests from exhausting memory
-
-    RETENTION_HOURS: int = 24
-    # Hours to keep job states in memory before cleanup (avoids memory bloat)
-
+    GLABELS_EXECUTABLE: str = "glabels-3-batch"
+    GLABELS_TIMEOUT: float = Field(600, gt=0)
+    MERGE_TIMEOUT: float = Field(120, gt=0)
+    PROCESS_REAP_TIMEOUT: float = Field(5, gt=0)
+    WORK_TOKENS: int = Field(0, ge=0)
+    API_CPU_RESERVE: int = Field(1, ge=0)
+    MERGE_COST: int = Field(2, ge=1)
+    MAX_PENDING_JOBS: int = Field(32, ge=1)
+    MAX_INFLIGHT_JOBS: int = Field(4, ge=1)
+    MAX_LABELS_PER_BATCH: int = Field(300, ge=0)
+    MAX_LABELS_PER_JOB: int = Field(2000, ge=1)
+    MAX_COPIES: int = Field(100, ge=1)
+    MAX_EFFECTIVE_LABELS: int = Field(20_000, ge=1)
+    MAX_BATCHES_PER_JOB: int = Field(100, ge=1)
+    MAX_REQUEST_BYTES: int = Field(5_000_000, ge=1)
+    MAX_FIELDS_PER_LABEL: int = Field(50, ge=1)
+    MAX_FIELD_LENGTH: int = Field(2048, ge=1)
+    MAX_PDF_BYTES: int = Field(256_000_000, ge=1)
+    MAX_PDF_PAGES: int = Field(10_000, ge=1)
+    MAX_WORKSPACE_BYTES: int = Field(512_000_000, ge=1)
+    MIN_FREE_DISK_BYTES: int = Field(128_000_000, ge=0)
+    RETENTION_HOURS: float = Field(24, gt=0)
+    CLEANUP_INTERVAL: float = Field(60, gt=0)
+    CLEANUP_BATCH_SIZE: int = Field(100, ge=1)
+    SHUTDOWN_TIMEOUT: float = Field(30, gt=0)
+    TEMPLATES_DIR: Path = Path("templates")
+    OUTPUT_DIR: Path = Path("output")
+    TEMP_DIR: Path = Path("temp")
+    STATE_DIR: Path = Path("state")
     LOG_LEVEL: str = "INFO"
-    # Logging level: DEBUG / INFO / WARNING / ERROR
-    # Default INFO, recommended INFO or higher in production
-
     LOG_FORMAT: str = "text"
-    # Logging format: text | json
-    # json is useful for log aggregators (Loki/ELK)
-
     LOG_DIR: str = "logs"
-    # Directory for log files. Can be relative or absolute. Default: logs
-
-    # -------------------------
-    # Observability & safety
-    # -------------------------
     REQUEST_ID_HEADER: str = "X-Request-ID"
-    # Incoming/outgoing request ID header name
-
     RATE_LIMIT: str = "60/minute"
-    # Rate limit for sensitive endpoints (e.g., /labels/print)
-
     ENABLE_METRICS: bool = True
-    # Enable Prometheus metrics endpoint (/metrics)
-
-    SHUTDOWN_TIMEOUT: int = 30
-    # Max seconds to wait for queue drain on shutdown
-
-    MAX_REQUEST_BYTES: int = 5_000_000
-    # Maximum allowed HTTP request body size in bytes (approx 5 MB)
-
-    MAX_FIELDS_PER_LABEL: int = 50
-    # Maximum number of fields allowed per label record
-
-    MAX_FIELD_LENGTH: int = 2048
-    # Maximum length allowed for any single field value
-
-    # -------------------------
-    # CORS settings
-    # -------------------------
     CORS_ALLOW_ORIGINS: str = ""
-    # Comma-separated list of allowed origins. Leave empty to disable CORS.
 
-    # -------------------------
-    # Internal settings
-    # -------------------------
-    # Load .env file from project root (if exists)
     model_config = SettingsConfigDict(
-        env_file=".env" if Path(".env").exists() else None,
-        env_file_encoding="utf-8",
-        extra="ignore",
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    def model_post_init(self, __context: Any) -> None:
-        """Production safety validation."""
+    @model_validator(mode="after")
+    def safety(self) -> Self:
         if self.ENVIRONMENT == "production" and self.RELOAD:
-            raise ValueError(
-                "RELOAD must be false in production! "
-                "Set RELOAD=false or ENVIRONMENT=development"
+            raise ValueError("RELOAD must be false in production")
+        if not self.GLABELS_EXECUTABLE.strip():
+            raise ValueError("GLABELS_EXECUTABLE must name an executable or wrapper")
+        roots = [
+            p.resolve()
+            for p in (
+                self.OUTPUT_DIR,
+                self.TEMP_DIR,
+                self.STATE_DIR,
+                self.TEMPLATES_DIR,
             )
+        ]
+        if any(
+            a == b or a.is_relative_to(b) or b.is_relative_to(a)
+            for i, a in enumerate(roots)
+            for b in roots[i + 1 :]
+        ):
+            raise ValueError(
+                "Template, output, temp and state roots must be separate directories"
+            )
+        return self
 
 
-# Singleton instance
 settings = Settings()
